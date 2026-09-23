@@ -17,6 +17,19 @@ can currently buy.
 The control plane is the product. Chart analysis is abundant; remote input
 automation with a voice front end is not.
 
+## Web app
+
+`frontend/` is the site at <https://chartremotely.tollbooth-dpyc.com>: a welcome page, npub
+sign-in, a carousel of your screens with a live snapshot on request, and a profile for your
+balance and paired displays. It is built on
+[`@tollbooth-dpyc/web`](https://github.com/lonniev/tollbooth-web), the shared browser SDK,
+and deploys to Cloudflare Pages through the fleet's shared workflow on every push to main
+that touches `frontend/`.
+
+```sh
+cd frontend && npm install && npm run dev   # tests run as part of npm run build
+```
+
 ## Tools
 
 | Tool | Price | What it does |
