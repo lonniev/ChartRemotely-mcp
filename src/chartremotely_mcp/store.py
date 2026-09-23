@@ -92,6 +92,13 @@ class AgentStore:
             "    collected_at TIMESTAMPTZ"
             ")"
         )
+        # chart_pairings predates collected_at, and CREATE TABLE IF NOT EXISTS
+        # leaves an existing table untouched - so the column has to be added
+        # explicitly or every collect against an already-deployed database
+        # fails on an unknown column.
+        await self._neon._execute(
+            f"ALTER TABLE {self._t('chart_pairings')} "
+            "ADD COLUMN IF NOT EXISTS collected_at TIMESTAMPTZ")
         await self._neon._execute(
             f"CREATE TABLE IF NOT EXISTS {self._t('chart_commands')} ("
             "    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),"
