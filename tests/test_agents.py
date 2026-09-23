@@ -163,3 +163,30 @@ async def test_the_store_needs_a_real_vault_not_the_accessor():
     from tollbooth.runtime import OperatorRuntime
     assert inspect.iscoroutinefunction(OperatorRuntime.vault), (
         "if vault ever becomes a property, server.py must stop awaiting it")
+
+
+async def test_collect_is_idempotent_and_never_destroys_the_pairing():
+    """A read that consumes the credential is only safe if delivery is
+    guaranteed, and over a network it never is. The agent's first collect
+    can time out while the server succeeds; the retry has to still work."""
+    runtime = FakeRuntime()
+    runtime.creds[("npub1alice", "agent_secret_a1")] = "s3cret"
+    paired = {"rows": [{"agent_id": "a1", "npub": "npub1alice"}]}
+    neon = FakeNeon(paired, {"rows": []}, paired, {"rows": []})
+    s = AgentStore(neon_vault=neon, runtime=runtime)
+
+    first = await s.collect("ABC234")
+    second = await s.collect("ABC234")
+
+    assert first == ("a1", "s3cret")
+    assert second == first
+    assert not any("DELETE" in sql.upper() for sql in neon.sql)
+
+
+async def test_schema_adds_collected_at_to_an_existing_table():
+    """CREATE TABLE IF NOT EXISTS is a no-op against a table that predates
+    the column, so the migration has to be explicit."""
+    neon = FakeNeon()
+    await AgentStore(neon_vault=neon, runtime=FakeRuntime()).ensure_schema()
+
+    assert any("ADD COLUMN IF NOT EXISTS collected_at" in sql for sql in neon.sql)
