@@ -88,7 +88,8 @@ class AgentStore:
             f"CREATE TABLE IF NOT EXISTS {self._t('chart_pairings')} ("
             "    code TEXT PRIMARY KEY,"
             "    created_at TIMESTAMPTZ DEFAULT now(),"
-            "    agent_id TEXT"
+            "    agent_id TEXT,"
+            "    collected_at TIMESTAMPTZ"
             ")"
         )
         await self._neon._execute(
@@ -153,8 +154,15 @@ class AgentStore:
             return None
         agent_id, npub = rows[0]["agent_id"], rows[0]["npub"]
         secret = await self._get_secret(npub, agent_id)
+        # Deliberately NOT deleted here. Collect must be idempotent: the
+        # first call after a deploy is cold - vault bootstrap plus schema
+        # creation - and can outrun a client read timeout. Deleting on read
+        # means the server consumes the handshake into a response nobody
+        # receives, and the secret is gone for good. The row expires on the
+        # same TTL the code already had, so this widens no window.
         await self._neon._execute(
-            f"DELETE FROM {self._t('chart_pairings')} WHERE code = $1", [code])
+            f"UPDATE {self._t('chart_pairings')} SET collected_at = now() "
+            "WHERE code = $1 AND collected_at IS NULL", [code])
         return agent_id, secret or ""
 
     async def _sweep(self) -> None:
