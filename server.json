@@ -10,7 +10,7 @@
   "remotes": [
     {
       "type": "streamable-http",
-      "url": "https://chartremotely.fastmcp.app/mcp"
+      "url": "https://chartremotely-mcp.fastmcp.app/mcp"
     }
   ]
 }
