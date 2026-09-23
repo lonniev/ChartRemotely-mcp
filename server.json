@@ -1,0 +1,16 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.lonniev/chartremotely-mcp",
+  "description": "ChartRemotely — put a security on a desktop chart anywhere in the world, by voice or by tool call",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/lonniev/ChartRemotely-mcp",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://chartremotely.fastmcp.app/mcp"
+    }
+  ]
+}
