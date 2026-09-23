@@ -31,7 +31,7 @@ from chartremotely_mcp.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-SHORTCUT_URL = "https://chartremotely.com/ChartRemotely.shortcut"
+SHORTCUT_URL = "https://chartremotely.tollbooth-dpyc.com/ChartRemotely.shortcut"
 
 mcp = FastMCP(
     "chartremotely",
