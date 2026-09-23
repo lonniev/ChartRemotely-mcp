@@ -28,6 +28,7 @@ from tollbooth.tool_identity import STANDARD_IDENTITIES, ToolIdentity
 
 from chartremotely_mcp import __version__, agents
 from chartremotely_mcp.config import get_settings
+from chartremotely_mcp.store import AgentStore
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +126,25 @@ runtime = OperatorRuntime(
             ),
         },
     ),
+    patron_credential_template=CredentialTemplate(
+        service="chartremotely",
+        version=1,
+        description="Per-patron secrets for ChartRemotely",
+        fields={
+            "agent_token": FieldSpec(
+                required=False, sensitive=True,
+                description=(
+                    "The token your local agent listens with, from "
+                    "`chartremotely token`. Supplying it lets the Shortcut "
+                    "reach your display directly."
+                ),
+            ),
+        },
+    ),
+    patron_credential_greeting=(
+        "Hi — I'm ChartRemotely. You (or your AI agent) requested a "
+        "credential channel to store a token for your display."
+    ),
     operator_credential_greeting=(
         "Hi — I'm ChartRemotely, an MCP service for driving desktop charts "
         "remotely. You (or your AI agent) requested a credential channel."
@@ -141,9 +161,19 @@ tool = register_standard_tools(
     service_version=__version__,
 )
 
-# Process-local for now; the Authority provisions Neon for exactly this.
-REGISTRY = agents.Registry()
-RELAY = agents.Relay()
+# Durable, on the Neon schema the Authority wired during onboarding. It has
+# to be: instances recycle, and a tool call and an agent's open poll can
+# land on different ones - so the database is both registry and message bus.
+_STORE: AgentStore | None = None
+
+
+async def store() -> AgentStore:
+    global _STORE
+    if _STORE is None:
+        created = AgentStore(neon_vault=runtime.vault, runtime=runtime)
+        await created.ensure_schema()
+        _STORE = created
+    return _STORE
 
 NPUB_FIELD = Annotated[
     str,
@@ -174,7 +204,7 @@ async def pair_agent(
         label: What to call this display, e.g. "east wall". Used to address it later.
     """
     try:
-        agent = REGISTRY.claim(code, npub, label)
+        agent = await (await store()).claim(code, npub, label)
     except KeyError as exc:
         return {"ok": False, "error": str(exc)}
     return {"ok": True, "display": agent.label, "agent_id": agent.agent_id}
@@ -183,7 +213,7 @@ async def pair_agent(
 @tool
 async def agent_status(npub: NPUB_FIELD = "", dpop_token: str = "") -> dict[str, Any]:
     """List the displays paired to you, and whether each is connected."""
-    owned = REGISTRY.for_npub(npub)
+    owned = await (await store()).for_npub(npub)
     return {
         "displays": [
             {"label": a.label, "agent_id": a.agent_id, "connected": a.connected()}
@@ -232,13 +262,14 @@ async def show_chart(
             swing, daily, weekly, ticks, micro. Omit to leave it unchanged.
         display: Which display, when several are paired. Omit if you have one.
     """
+    db = await store()
     try:
-        agent = REGISTRY.resolve(npub, display or None)
+        agent = await db.resolve(npub, display or None)
     except LookupError as exc:
         return {"ok": False, "error": str(exc)}
     command = f"set {security} | {scale}" if scale else security
     try:
-        reply = await RELAY.send(agent.agent_id, command)
+        reply = await db.send(agent.agent_id, command)
     except TimeoutError:
         return {"ok": False, "display": agent.label,
                 "error": "the display did not answer; is the agent running?"}
@@ -257,12 +288,13 @@ async def read_chart(
     Args:
         display: Which display, when several are paired.
     """
+    db = await store()
     try:
-        agent = REGISTRY.resolve(npub, display or None)
+        agent = await db.resolve(npub, display or None)
     except LookupError as exc:
         return {"ok": False, "error": str(exc)}
     try:
-        reply = await RELAY.send(agent.agent_id, "read")
+        reply = await db.send(agent.agent_id, "read")
     except TimeoutError:
         return {"ok": False, "display": agent.label, "error": "the display did not answer"}
     return {"ok": not reply.startswith("ERR"), "display": agent.label, "result": reply}
@@ -277,7 +309,7 @@ async def read_chart(
 @mcp.custom_route("/agent/open", methods=["POST"])
 async def agent_open(request: Request) -> JSONResponse:
     """An unpaired agent asks for a code to show its owner."""
-    return JSONResponse({"code": REGISTRY.open_code(),
+    return JSONResponse({"code": await (await store()).open_code(),
                          "expires_in": agents.CODE_TTL_SECONDS})
 
 
@@ -285,7 +317,7 @@ async def agent_open(request: Request) -> JSONResponse:
 async def agent_collect(request: Request) -> JSONResponse:
     """Has anyone adopted me yet?"""
     body = await request.json()
-    claimed = REGISTRY.collect(str(body.get("code", "")))
+    claimed = await (await store()).collect(str(body.get("code", "")))
     if claimed is None:
         return JSONResponse({"paired": False})
     agent_id, secret = claimed
@@ -299,12 +331,12 @@ async def agent_poll(request: Request) -> JSONResponse:
     This is the whole reason a patron needs no open port.
     """
     body = await request.json()
-    agent = REGISTRY.authenticate(str(body.get("agent_id", "")), str(body.get("secret", "")))
+    db = await store()
+    agent = await db.authenticate(str(body.get("agent_id", "")), str(body.get("secret", "")))
     if agent is None:
         return JSONResponse({"error": "unknown agent"}, status_code=403)
-    import time as _time
-    agent.last_seen = _time.time()
-    command = await RELAY.next_for(agent.agent_id, get_settings().agent_poll_seconds)
+    await db.touch(agent.agent_id)
+    command = await db.next_for(agent.agent_id, get_settings().agent_poll_seconds)
     return JSONResponse(command or {})
 
 
@@ -312,10 +344,11 @@ async def agent_poll(request: Request) -> JSONResponse:
 async def agent_result(request: Request) -> JSONResponse:
     """The agent's reply to one relayed command."""
     body = await request.json()
-    agent = REGISTRY.authenticate(str(body.get("agent_id", "")), str(body.get("secret", "")))
+    db = await store()
+    agent = await db.authenticate(str(body.get("agent_id", "")), str(body.get("secret", "")))
     if agent is None:
         return JSONResponse({"error": "unknown agent"}, status_code=403)
-    ok = RELAY.deliver(str(body.get("id", "")), str(body.get("reply", "")))
+    ok = await db.deliver(str(body.get("id", "")), str(body.get("reply", "")))
     return JSONResponse({"accepted": ok})
 
 

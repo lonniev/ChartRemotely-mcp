@@ -1,11 +1,11 @@
-"""Pairing and relay. Pure logic - no MCP, no network, no billing."""
+"""Identities, and the decisions the store makes around them."""
 
-import asyncio
 import time
 
 import pytest
 
 from chartremotely_mcp import agents
+from chartremotely_mcp.store import AgentStore
 
 
 def test_pairing_code_avoids_ambiguous_glyphs():
@@ -16,93 +16,136 @@ def test_pairing_code_avoids_ambiguous_glyphs():
     assert not set(code) & set("01IO")
 
 
-def test_claim_binds_an_agent_to_an_npub():
-    reg = agents.Registry()
-    code = reg.open_code()
-    agent = reg.claim(code, "npub1alice", "east wall")
-    assert agent.npub == "npub1alice"
-    assert reg.for_npub("npub1alice") == [agent]
-
-
-def test_a_code_works_once():
-    reg = agents.Registry()
-    code = reg.open_code()
-    reg.claim(code, "npub1alice", "wall")
-    with pytest.raises(KeyError):
-        reg.claim(code, "npub1mallory", "mine now")
-
-
-def test_the_agent_collects_its_secret_once():
-    reg = agents.Registry()
-    code = reg.open_code()
-    reg.claim(code, "npub1alice", "wall")
-    first = reg.collect(code)
-    assert first is not None
-    assert reg.collect(code) is None      # single use
-
-
-def test_unknown_and_expired_codes_are_refused():
-    reg = agents.Registry()
-    with pytest.raises(KeyError):
-        reg.claim("ZZZZZZ", "npub1alice", "wall")
-    code = reg.open_code()
-    reg._codes[code].created_at = time.time() - agents.CODE_TTL_SECONDS - 1
-    with pytest.raises(KeyError):
-        reg.claim(code, "npub1alice", "wall")
-
-
-def test_authentication_requires_the_right_secret():
-    reg = agents.Registry()
-    agent = reg.claim(reg.open_code(), "npub1alice", "wall")
-    assert reg.authenticate(agent.agent_id, agent.secret) is agent
-    assert reg.authenticate(agent.agent_id, "wrong") is None
-    assert reg.authenticate("nobody", agent.secret) is None
-
-
-def test_one_display_needs_no_name_and_several_do():
-    reg = agents.Registry()
-    east = reg.claim(reg.open_code(), "npub1alice", "east wall")
-    assert reg.resolve("npub1alice", None) is east
-
-    reg.claim(reg.open_code(), "npub1alice", "desk")
-    with pytest.raises(LookupError, match="name one"):
-        reg.resolve("npub1alice", None)
-    assert reg.resolve("npub1alice", "east wall") is east
-
-
-def test_displays_are_scoped_to_their_owner():
-    reg = agents.Registry()
-    reg.claim(reg.open_code(), "npub1alice", "wall")
-    with pytest.raises(LookupError):
-        reg.resolve("npub1mallory", None)
-
-
-async def test_a_command_reaches_a_waiting_agent():
-    relay = agents.Relay()
-    sent = asyncio.create_task(relay.send("agent1", "set PLTR | scalp"))
-    await asyncio.sleep(0)
-    envelope = await relay.next_for("agent1", timeout=1)
-    assert envelope["command"] == "set PLTR | scalp"
-    relay.deliver(envelope["id"], "Showing PLTR at scalp. Good luck.")
-    assert await sent == "Showing PLTR at scalp. Good luck."
-
-
-async def test_nothing_is_queued_for_an_absent_agent():
-    """A chart command is only meaningful now. Timing out is the correct
-    outcome, and the caller must refund rather than deliver it later."""
-    relay = agents.Relay()
-    with pytest.raises(TimeoutError):
-        await relay.send("offline", "read", timeout=0.05)
-
-
-async def test_an_idle_poll_returns_nothing():
-    relay = agents.Relay()
-    assert await relay.next_for("agent1", timeout=0.05) is None
-
-
 def test_connected_is_derived_from_the_last_poll():
-    reg = agents.Registry()
-    agent = reg.claim(reg.open_code(), "npub1alice", "wall")
+    """A dropped connection is indistinguishable from a slow one, so only
+    recency answers the question a caller actually has."""
+    agent = agents.Agent(agent_id="a1", npub="npub1x", label="wall", secret="")
     assert not agent.connected()
     agent.last_seen = time.time()
     assert agent.connected()
+
+
+class FakeRuntime:
+    """Stands in for the wheel's patron credential vault."""
+
+    def __init__(self):
+        self.creds: dict[tuple[str, str], str] = {}
+
+    async def update_patron_credential(self, npub, field, value, *, service=None):
+        self.creds[(npub, field)] = value
+        return True
+
+    async def get_patron_credential(self, npub, field, *, service=None):
+        return self.creds.get((npub, field))
+
+
+class FakeNeon:
+    """Answers with whatever a test queues, and records what was asked."""
+
+    def __init__(self, *responses):
+        self.responses = list(responses)
+        self.sql: list[str] = []
+
+    def _t(self, table):
+        return f"op.{table}"
+
+    async def _execute(self, sql, params=None):
+        self.sql.append(sql)
+        return self.responses.pop(0) if self.responses else {"rows": []}
+
+
+def store(*responses, runtime=None):
+    return AgentStore(neon_vault=FakeNeon(*responses),
+                      runtime=runtime or FakeRuntime())
+
+
+async def test_no_secret_is_ever_written_to_a_column():
+    """The whole point of using the wheel's vault: nothing sensitive should
+    appear in SQL this module emits."""
+    runtime = FakeRuntime()
+    neon = FakeNeon({"rows": [{"code": "ABC234", "agent_id": None, "created": time.time()}]})
+    agent_store = AgentStore(neon_vault=neon, runtime=runtime)
+    agent = await agent_store.claim("ABC234", "npub1alice", "east wall")
+
+    assert all("secret" not in sql.lower() for sql in neon.sql)
+    assert runtime.creds[("npub1alice", f"agent_secret_{agent.agent_id}")] == agent.secret
+
+
+async def test_a_used_code_is_refused():
+    s = store({"rows": [{"code": "ABC234", "agent_id": "taken", "created": time.time()}]})
+    with pytest.raises(KeyError, match="already used"):
+        await s.claim("ABC234", "npub1mallory", "mine now")
+
+
+async def test_an_expired_code_is_refused():
+    stale = time.time() - agents.CODE_TTL_SECONDS - 1
+    s = store({"rows": [{"code": "ABC234", "agent_id": None, "created": stale}]})
+    with pytest.raises(KeyError, match="expired"):
+        await s.claim("ABC234", "npub1alice", "wall")
+
+
+async def test_an_unknown_code_is_refused():
+    s = store({"rows": []})
+    with pytest.raises(KeyError):
+        await s.claim("ZZZZZZ", "npub1alice", "wall")
+
+
+async def test_authentication_reads_the_secret_from_the_vault():
+    runtime = FakeRuntime()
+    runtime.creds[("npub1alice", "agent_secret_a1")] = "right"
+    rows = {"rows": [{"agent_id": "a1", "npub": "npub1alice", "label": "wall", "seen": 0}]}
+
+    good = AgentStore(neon_vault=FakeNeon(rows), runtime=runtime)
+    assert await good.authenticate("a1", "right") is not None
+
+    bad = AgentStore(neon_vault=FakeNeon(rows), runtime=runtime)
+    assert await bad.authenticate("a1", "wrong") is None
+
+
+async def test_authentication_fails_closed_when_no_credential_exists():
+    rows = {"rows": [{"agent_id": "a1", "npub": "npub1alice", "label": "wall", "seen": 0}]}
+    s = AgentStore(neon_vault=FakeNeon(rows), runtime=FakeRuntime())
+    assert await s.authenticate("a1", "anything") is None
+
+
+async def test_listing_displays_never_reads_credentials():
+    runtime = FakeRuntime()
+    rows = {"rows": [{"agent_id": "a1", "npub": "npub1alice", "label": "wall", "seen": 0}]}
+    s = AgentStore(neon_vault=FakeNeon(rows), runtime=runtime)
+    listed = await s.for_npub("npub1alice")
+    assert [a.secret for a in listed] == [""]
+
+
+async def test_one_display_needs_no_name_and_several_do(monkeypatch):
+    s = store()
+    east = agents.Agent(agent_id="a1", npub="n", label="east wall", secret="")
+    desk = agents.Agent(agent_id="a2", npub="n", label="desk", secret="")
+
+    async def only_east(npub): return [east]
+    monkeypatch.setattr(s, "for_npub", only_east)
+    assert await s.resolve("n", None) is east
+
+    async def both(npub): return [east, desk]
+    monkeypatch.setattr(s, "for_npub", both)
+    with pytest.raises(LookupError, match="name one"):
+        await s.resolve("n", None)
+    assert await s.resolve("n", "east wall") is east
+
+
+async def test_an_unpaired_npub_is_refused(monkeypatch):
+    s = store()
+
+    async def none(npub): return []
+    monkeypatch.setattr(s, "for_npub", none)
+    with pytest.raises(LookupError, match="no agent paired"):
+        await s.resolve("npub1stranger", None)
+
+
+async def test_nothing_is_queued_for_an_absent_agent():
+    """A chart command is only meaningful now. Timing out is correct, and
+    the row is removed so it cannot surface later on reconnect."""
+    neon = FakeNeon({"rows": [{"id": "r1"}]})
+    s = AgentStore(neon_vault=neon, runtime=FakeRuntime())
+    with pytest.raises(TimeoutError):
+        await s.send("offline", "read", timeout=0.05)
+    assert any(sql.startswith("DELETE") for sql in neon.sql)
