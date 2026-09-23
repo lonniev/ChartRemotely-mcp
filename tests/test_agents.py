@@ -149,3 +149,17 @@ async def test_nothing_is_queued_for_an_absent_agent():
     with pytest.raises(TimeoutError):
         await s.send("offline", "read", timeout=0.05)
     assert any(sql.startswith("DELETE") for sql in neon.sql)
+
+
+async def test_the_store_needs_a_real_vault_not_the_accessor():
+    """runtime.vault is a coroutine, not a property.
+
+    Passing the bound method gives the store an object with no _execute,
+    which imports cleanly and then 500s on the first request - exactly how
+    this shipped once.
+    """
+    import inspect
+
+    from tollbooth.runtime import OperatorRuntime
+    assert inspect.iscoroutinefunction(OperatorRuntime.vault), (
+        "if vault ever becomes a property, server.py must stop awaiting it")

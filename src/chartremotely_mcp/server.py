@@ -170,7 +170,10 @@ _STORE: AgentStore | None = None
 async def store() -> AgentStore:
     global _STORE
     if _STORE is None:
-        created = AgentStore(neon_vault=runtime.vault, runtime=runtime)
+        # vault() is a coroutine that bootstraps from the Authority on first
+        # use - not a property. Passing the bound method yields an object
+        # with no _execute, which fails at request time rather than import.
+        created = AgentStore(neon_vault=await runtime.vault(), runtime=runtime)
         await created.ensure_schema()
         _STORE = created
     return _STORE
