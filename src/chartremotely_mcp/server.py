@@ -21,6 +21,7 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from fastmcp.tools import ToolResult
 from fastmcp.utilities.types import Image
+from mcp.types import TextContent
 from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -327,15 +328,34 @@ def _iso(epoch: float) -> str:
     return datetime.fromtimestamp(epoch, UTC).isoformat(timespec="seconds")
 
 
-def _picture(agent: agents.Agent, jpeg: bytes, taken_at: str,
-             symbol: str | None = None) -> ToolResult:
-    """One picture of a display, as both an image block and its facts."""
+def _summary(display: str, taken: datetime, symbol: str | None, scale: str | None) -> str:
+    """One line naming only what is known: display, symbol, scale, when."""
+    parts = [display]
+    if symbol and symbol != agents.UNLABELLED:
+        parts.append(symbol)
+    if scale:
+        parts.append(scale)
+    parts.append(f"captured {taken.astimezone(UTC):%Y-%m-%d %H:%M} UTC")
+    return " · ".join(parts)
+
+
+def _picture(agent: agents.Agent, jpeg: bytes, taken: datetime,
+             symbol: str | None = None, scale: str | None = None) -> ToolResult:
+    """One picture of a display: a one-line text summary, the image, and its facts.
+
+    The text comes first and stands alone. Images are the first thing a
+    client drops when a long conversation compacts, and some clients cannot
+    render one at all; the line survives both.
+    """
     facts = {"ok": True, "display": agent.label, "agent_id": agent.agent_id,
-             "taken_at": taken_at}
+             "taken_at": taken.astimezone(UTC).isoformat(timespec="seconds")}
     if symbol is not None:
         facts |= {"symbol": symbol, "name": agents.symbol_name(symbol)}
+    if scale:
+        facts["scale"] = scale
     return ToolResult(
-        content=[Image(data=jpeg, format="jpeg").to_image_content()],
+        content=[TextContent(type="text", text=_summary(agent.label, taken, symbol, scale)),
+                 Image(data=jpeg, format="jpeg").to_image_content()],
         structured_content=facts,
     )
 
@@ -412,7 +432,7 @@ async def snapshot_display(
         display: Which display, when several are paired.
     """
     agent, reply = await _relay(npub, display, "snapshot")
-    return _picture(agent, snapshot.parse(reply), datetime.now(UTC).isoformat(timespec="seconds"))
+    return _picture(agent, snapshot.parse(reply), datetime.now(UTC))
 
 
 @tool
@@ -444,8 +464,8 @@ async def latest_snapshot(
     if kept is None:
         what = f"no picture of {agents.symbol_name(wanted)}" if wanted else "no picture"
         raise ValueError(f"{agent.label} has {what} from the last hour")
-    data_url, taken, key = kept
-    return _picture(agent, snapshot.parse(data_url), _iso(taken), key)
+    return _picture(agent, snapshot.parse(kept.data_url),
+                    datetime.fromtimestamp(kept.taken, UTC), kept.symbol, kept.scale)
 
 
 # ---------------------------------------------------------------------------
@@ -494,8 +514,9 @@ async def agent_snapshot(request: Request) -> JSONResponse:
 
     Checked like any reply from a patron's machine, then kept sealed as that
     display's latest of the symbol it names (``symbol``, optional: without
-    one it is kept as a plain "Chart"). Nothing is stored when it cannot be
-    encrypted.
+    one it is kept as a plain "Chart"), with the scale it states (``scale``,
+    optional; dropped when not scale-shaped). Nothing is stored when it
+    cannot be encrypted.
     """
     body = await request.json()
     db = await store()
@@ -509,7 +530,7 @@ async def agent_snapshot(request: Request) -> JSONResponse:
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
     try:
-        await db.keep_latest(agent.agent_id, image, key)
+        await db.keep_latest(agent.agent_id, image, key, agents.scale_label(body.get("scale")))
     except RuntimeError:
         return JSONResponse({"error": "pictures cannot be stored right now"}, status_code=503)
     return JSONResponse({"kept": True})

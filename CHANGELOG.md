@@ -7,6 +7,8 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Picture replies (`snapshot_display`, `latest_snapshot`) now carry a one-line text summary before the image - display, symbol, scale and capture time, leaving out whatever is unknown - so the facts survive a client dropping images when it compacts, and reach a client that cannot render images at all. Same tools, same price; `structured_content` gains `scale`.
+- A kept picture remembers the scale its display stated (new nullable `scale` column on `chart_pictures`, added idempotently). `/agent/snapshot` accepts an optional `scale`; one that is not a short printable label (24 characters at most) is dropped and the picture kept.
 - Display names match loosely, the same way for every tool's `display` and
   for `/agent/forward`: dictation's "mini mac", "mini", "macm" and even
   "mack meeny" find "Mac mini". Deterministic rules tried in order, the first

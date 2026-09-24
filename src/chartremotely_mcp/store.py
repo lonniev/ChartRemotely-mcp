@@ -30,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import secrets
 import time
-from typing import Any
+from typing import Any, NamedTuple
 
 from chartremotely_mcp import displays
 from chartremotely_mcp.agents import (
@@ -42,6 +42,7 @@ from chartremotely_mcp.agents import (
     new_agent_id,
     new_pairing_code,
     new_secret,
+    scale_label,
     symbol_key,
 )
 
@@ -50,6 +51,15 @@ from chartremotely_mcp.agents import (
 RESULT_POLL_SECONDS = 0.4
 #: How often a polling agent re-checks for work within one held-open request.
 CLAIM_POLL_SECONDS = 0.7
+
+
+class KeptPicture(NamedTuple):
+    """A display's kept picture: the image and what is known about it."""
+
+    data_url: str
+    taken: float
+    symbol: str
+    scale: str | None = None
 
 
 class NoSuchDisplay(LookupError):
@@ -151,6 +161,11 @@ class AgentStore:
             "    PRIMARY KEY (agent_id, symbol)"
             ")"
         )
+        # Migration: scale arrived after chart_pictures did. Metadata like
+        # symbol and taken_at, so it is kept in the clear. Idempotent.
+        await self._neon._execute(
+            f"ALTER TABLE {self._t('chart_pictures')} "
+            "ADD COLUMN IF NOT EXISTS scale TEXT")
         # Migration: chart_pictures replaces chart_latest, which kept one
         # picture per display. Those pictures are disposable - sealed, and
         # gone within the hour anyway - so the old table is dropped rather
@@ -329,24 +344,27 @@ class AgentStore:
             f"DELETE FROM {self._t('chart_pictures')} "
             f"WHERE taken_at <= now() - interval '{LATEST_TTL_SECONDS} seconds'")
 
-    async def keep_latest(self, agent_id: str, data_url: str, symbol: str = "") -> None:
+    async def keep_latest(self, agent_id: str, data_url: str, symbol: str = "",
+                          scale: str | None = None) -> None:
         """Keep a display's picture of one symbol, replacing that symbol's last.
 
         Only the display's LATEST_KEEP most recent symbols survive. Refuses
         when the picture cannot be sealed, and when ``symbol`` is not
-        symbol-shaped (ValueError).
+        symbol-shaped (ValueError). ``scale`` is the time frame the display
+        stated; one that is not scale-shaped is dropped, not refused.
         """
         key = symbol_key(symbol)
+        scaled = scale_label(scale)
         if self._cipher is None:
             raise RuntimeError("no vault cipher: a picture is never stored in the clear")
         sealed = self._cipher.encrypt(data_url, aad=self._latest_aad(agent_id, key))
         table = self._t("chart_pictures")
         await self._neon._execute(
-            f"INSERT INTO {table} (agent_id, symbol, image, taken_at) "
-            "VALUES ($1, $2, $3, now()) "
+            f"INSERT INTO {table} (agent_id, symbol, image, scale, taken_at) "
+            "VALUES ($1, $2, $3, $4, now()) "
             "ON CONFLICT (agent_id, symbol) "
-            "DO UPDATE SET image = EXCLUDED.image, taken_at = now()",
-            [agent_id, key, sealed])
+            "DO UPDATE SET image = EXCLUDED.image, scale = EXCLUDED.scale, taken_at = now()",
+            [agent_id, key, sealed, scaled])
         await self._neon._execute(
             f"DELETE FROM {table} WHERE agent_id = $1 AND symbol NOT IN ("
             f"    SELECT symbol FROM {table} WHERE agent_id = $1 "
@@ -368,8 +386,8 @@ class AgentStore:
         return kept
 
     async def latest(self, agent_id: str,
-                     symbol: str | None = None) -> tuple[str, float, str] | None:
-        """A display's kept picture as (data URL, taken at, symbol key), or None.
+                     symbol: str | None = None) -> KeptPicture | None:
+        """A display's kept picture, or None.
 
         ``symbol`` None or empty means the display's newest picture of any
         symbol; otherwise that symbol's (case-insensitive). Pictures past
@@ -379,12 +397,12 @@ class AgentStore:
         table = self._t("chart_pictures")
         if symbol:
             result = await self._neon._execute(
-                f"SELECT symbol, image, EXTRACT(EPOCH FROM taken_at) AS taken "
+                f"SELECT symbol, image, scale, EXTRACT(EPOCH FROM taken_at) AS taken "
                 f"FROM {table} WHERE agent_id = $1 AND symbol = $2",
                 [agent_id, symbol_key(symbol)])
         else:
             result = await self._neon._execute(
-                f"SELECT symbol, image, EXTRACT(EPOCH FROM taken_at) AS taken "
+                f"SELECT symbol, image, scale, EXTRACT(EPOCH FROM taken_at) AS taken "
                 f"FROM {table} WHERE agent_id = $1 ORDER BY taken_at DESC LIMIT 1",
                 [agent_id])
         rows = result.get("rows", [])
@@ -393,7 +411,7 @@ class AgentStore:
         row = rows[0]
         key = row["symbol"]
         data_url = self._cipher.decrypt(row["image"], aad=self._latest_aad(agent_id, key))
-        return data_url, float(row["taken"]), key
+        return KeptPicture(data_url, float(row["taken"]), key, scale_label(row.get("scale")))
 
     # -- command bus -----------------------------------------------------
 

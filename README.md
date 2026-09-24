@@ -51,6 +51,12 @@ agent - is refunded, and so is one naming a display you do not have.
 remote command you cannot see is no longer indistinguishable from one that
 silently failed.
 
+A picture reply leads with one line of text naming what is known about it -
+display, symbol, scale, capture time, e.g. `Mac mini · PLTR · half · captured
+2026-09-24 22:10 UTC` - then the JPEG. Anything unknown is left out. The line
+survives when a client drops images to compact a long conversation, and it is
+all a client that cannot render images gets.
+
 `display` may be said loosely: "mini mac", "mini" or "mack meeny" all find
 "Mac mini". A name that could mean several displays is answered with them
 (see [PROTOCOL.md](PROTOCOL.md#naming-a-display) for the rules).
