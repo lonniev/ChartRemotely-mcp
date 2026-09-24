@@ -7,7 +7,7 @@ from cryptography.exceptions import InvalidTag
 from tollbooth.vault_encryption import VaultCipher
 
 from chartremotely_mcp import agents
-from chartremotely_mcp.store import AgentStore
+from chartremotely_mcp.store import AgentStore, AmbiguousDisplay, NoSuchDisplay
 
 
 def test_pairing_code_avoids_ambiguous_glyphs():
@@ -399,3 +399,39 @@ async def test_the_migration_replaces_the_one_picture_table_and_is_idempotent():
     assert ddl.count("DROP TABLE IF EXISTS op.chart_latest") == 2
     creates = [q for q in ddl if "CREATE TABLE IF NOT EXISTS op.chart_pictures" in q]
     assert len(creates) == 2 and "PRIMARY KEY (agent_id, symbol)" in creates[0]
+
+
+# -- naming a display ----------------------------------------------------------
+
+@pytest.mark.parametrize("said", ["Mac mini", "mac-mini", "macmini", "MAC_MINI", "mac.mini", "  Mac  Mini "])
+def test_spaces_hyphens_underscores_dots_and_case_do_not_count(said):
+    assert agents.display_key(said) == agents.display_key("Mac Mini") == "macmini"
+
+
+@pytest.mark.parametrize("said", ["mac", "mini mac", "Mac min", "macminis"])
+def test_nothing_else_is_forgiven(said):
+    assert agents.display_key(said) != agents.display_key("Mac Mini")
+
+
+async def test_a_display_is_found_by_its_normalised_name_or_its_id(monkeypatch):
+    s = store()
+    mini = agents.Agent(agent_id="a1", npub="n", label="Mac Mini", secret="")
+    desk = agents.Agent(agent_id="a2", npub="n", label="desk", secret="")
+
+    async def both(npub): return [mini, desk]
+    monkeypatch.setattr(s, "for_npub", both)
+    assert await s.resolve("n", "mac-mini") is mini
+    assert await s.resolve("n", "a2") is desk
+    with pytest.raises(NoSuchDisplay) as caught:
+        await s.resolve("n", "kitchen")
+    assert caught.value.names == ["Mac Mini", "desk"]
+
+
+async def test_twins_with_no_single_live_one_are_refused_not_guessed(monkeypatch):
+    s = store()
+    twins = [agents.Agent(agent_id=i, npub="n", label="desk", secret="") for i in ("a1", "a2")]
+
+    async def mine(npub): return twins
+    monkeypatch.setattr(s, "for_npub", mine)
+    with pytest.raises(AmbiguousDisplay, match="a1, a2"):
+        await s.resolve("n", "Desk")

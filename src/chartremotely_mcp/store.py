@@ -38,6 +38,7 @@ from chartremotely_mcp.agents import (
     LATEST_KEEP,
     LATEST_TTL_SECONDS,
     Agent,
+    display_key,
     new_agent_id,
     new_pairing_code,
     new_secret,
@@ -49,6 +50,23 @@ from chartremotely_mcp.agents import (
 RESULT_POLL_SECONDS = 0.4
 #: How often a polling agent re-checks for work within one held-open request.
 CLAIM_POLL_SECONDS = 0.7
+
+
+class NoSuchDisplay(LookupError):
+    """No display of the caller's answers to the name. Carries the names they have."""
+
+    def __init__(self, wanted: str, owned: list[Agent]) -> None:
+        self.names = [a.label for a in owned]
+        super().__init__(f"no display named {wanted!r}; you have: " + ", ".join(self.names))
+
+
+class AmbiguousDisplay(LookupError):
+    """Several of the caller's displays answer to the name. Carries them."""
+
+    def __init__(self, wanted: str, candidates: list[Agent]) -> None:
+        self.candidates = candidates
+        super().__init__(f"several displays are named {wanted!r} - name one by id: "
+                         + ", ".join(a.agent_id for a in candidates))
 
 
 class AgentStore:
@@ -234,26 +252,34 @@ class AgentStore:
                 for r in result.get("rows", [])]
 
     async def resolve(self, npub: str, display: str | None) -> Agent:
+        """One of ``npub``'s displays, by agent_id or by name - never anyone else's.
+
+        A name matches under :func:`display_key` ("Mac mini" is "mac-mini").
+        Omitted, it means the only display there is. Raises NoSuchDisplay
+        when nothing matches and AmbiguousDisplay when several do and it is
+        not the case that exactly one of them is live.
+        """
         owned = await self.for_npub(npub)
         if not owned:
             raise LookupError("no agent paired to this npub")
-        if display:
-            wanted = display.strip().lower()
-            match = [a for a in owned
-                     if a.label.lower() == wanted or a.agent_id == display]
-            if not match:
-                raise LookupError(
-                    f"no display named {display!r}; you have: "
-                    + ", ".join(a.label for a in owned))
-            # Re-pairing leaves the old row behind under the same name. The
-            # live one is the one the caller means; owned is oldest-first,
-            # so ties still resolve the same way every time.
-            live = [a for a in match if a.connected()]
-            return (live or match)[0]
-        if len(owned) > 1:
-            raise LookupError("several displays are paired - name one: "
-                              + ", ".join(a.label for a in owned))
-        return owned[0]
+        if not display:
+            if len(owned) > 1:
+                raise LookupError("several displays are paired - name one: "
+                                  + ", ".join(a.label for a in owned))
+            return owned[0]
+        wanted = display_key(display)
+        match = [a for a in owned if a.agent_id == display.strip()] or [
+            a for a in owned if wanted and display_key(a.label) == wanted]
+        if not match:
+            raise NoSuchDisplay(display, owned)
+        if len(match) == 1:
+            return match[0]
+        # Re-pairing leaves the old row behind under the same name. The live
+        # one is the one the caller means - but only when there is exactly one.
+        live = [a for a in match if a.connected()]
+        if len(live) == 1:
+            return live[0]
+        raise AmbiguousDisplay(display, match)
 
     async def forget(self, npub: str, display: str) -> Agent:
         """Remove one of the caller's displays, and everything it left behind.
