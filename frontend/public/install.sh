@@ -24,7 +24,7 @@ PATH="$HOME/.local/bin:$PATH"
 export PATH
 
 # 4. Install (or upgrade) the agent with its macOS drivers and its setup tools.
-uv tool install --upgrade 'chartremotely[macos,setup]'
+uv tool install --upgrade --python 3.12 'chartremotely[macos,setup]'
 
 # 5. Hand over to the guided setup. It reads answers from this terminal.
 exec chartremotely setup </dev/tty

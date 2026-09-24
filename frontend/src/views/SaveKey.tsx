@@ -15,7 +15,7 @@ import { KeyRound } from "lucide-react";
 import { setSessionNsec, setStoredNpub } from "@tollbooth-dpyc/web";
 import type { Session } from "@tollbooth-dpyc/web/react";
 import { npubForNsec } from "../lib/keys";
-import { go } from "../lib/route";
+import { go, routeParam } from "../lib/route";
 
 const field =
   "mt-1 w-full rounded-lg border border-[var(--tb-line)] bg-transparent px-3 py-2.5 font-mono text-sm focus:border-[var(--tb-accent)] focus:outline-none";
@@ -23,12 +23,19 @@ const field =
 export default function SaveKey({ session }: { session: Session }) {
   const [nsec, setNsec] = useState("");
   const [error, setError] = useState("");
-  const npub = npubForNsec(nsec) ?? "";
+  // Setup passes the npub it created; the key pasted here must derive to it.
+  const expected = routeParam("npub");
+  const derived = npubForNsec(nsec) ?? "";
+  const npub = derived || expected;
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (!npub) {
+    if (!derived) {
       setError("That is not a valid nsec. Paste the key setup placed on your clipboard.");
+      return;
+    }
+    if (expected && derived !== expected) {
+      setError("That key belongs to a different npub than the one setup created. Paste the key setup placed on your clipboard.");
       return;
     }
     setSessionNsec(nsec.trim());
@@ -82,7 +89,7 @@ export default function SaveKey({ session }: { session: Session }) {
         {error && <p className="text-xs text-[var(--tb-err-ink)]">{error}</p>}
         <button
           type="submit"
-          disabled={!npub}
+          disabled={!derived}
           className="w-full rounded-full bg-[var(--tb-accent)] py-2.5 text-sm font-medium text-[var(--tb-on-accent)] disabled:opacity-40"
         >
           Sign in and save
