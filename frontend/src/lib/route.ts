@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 
-export type View = "welcome" | "signin" | "screens" | "profile";
+export type View = "welcome" | "how" | "signin" | "screens" | "profile";
 
-const VIEWS: View[] = ["welcome", "signin", "screens", "profile"];
+const VIEWS: View[] = ["welcome", "how", "signin", "screens", "profile"];
 
 function current(): View {
   const v = globalThis.location.hash.replace(/^#\/?/, "") as View;
@@ -13,6 +13,7 @@ function current(): View {
 
 export function go(view: View): void {
   globalThis.location.hash = `/${view}`;
+  globalThis.scrollTo?.(0, 0);
 }
 
 export function useView(): View {
