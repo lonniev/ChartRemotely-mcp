@@ -62,7 +62,7 @@ require changes in both repositories, in public.
 ## Related
 
 - [ChartRemotely-agent](https://github.com/lonniev/ChartRemotely-agent) — runs on the patron's Mac
-- [ChartRemotely](https://github.com/lonniev/ChartRemotely) — landing page
+- [chartremotely.tollbooth-dpyc.com](https://chartremotely.tollbooth-dpyc.com) — the web app, built from `frontend/` here
 
 ## License
 
