@@ -23,7 +23,18 @@ import {
 import type { ReactNode } from "react";
 import { go } from "../lib/route";
 
-const IMG = "/how";
+/**
+ * The page's images, bundled by Vite so each URL carries a content hash. The
+ * domain tells browsers to keep images for hours; a hashed name means a
+ * changed picture is a new URL, seen on the next visit rather than later.
+ */
+const ASSETS = import.meta.glob("../assets/how/**/*", { eager: true, query: "?url", import: "default" }) as Record<string, string>;
+
+function asset(path: string): string {
+  const url = ASSETS[`../assets/how/${path}`];
+  if (!url) throw new Error(`missing How it works image: ${path}`);
+  return url;
+}
 
 /**
  * A real object: a photo in a rounded frame, with its name and one line.
@@ -35,7 +46,7 @@ function Photo({ src, alt, name, line, width = "w-28" }: {
   return (
     <figure className={`flex flex-none flex-col items-center text-center ${width}`}>
       <div className="h-32 w-full overflow-hidden rounded-2xl bg-[var(--tb-surface-2)] ring-1 ring-[var(--tb-line)] sm:h-36">
-        <img src={`${IMG}/${src}`} alt={alt} loading="lazy" className="h-full w-full object-cover" />
+        <img src={asset(src)} alt={alt} loading="lazy" className="h-full w-full object-cover" />
       </div>
       <figcaption className="mt-2 text-sm font-medium">{name}</figcaption>
       <div className="text-xs leading-snug text-[var(--tb-muted)]">{line}</div>
@@ -51,7 +62,7 @@ function Service({ logo, icon: Icon, name, line }: {
     <figure className="flex w-28 flex-none flex-col items-center text-center sm:w-32 lg:w-28">
       <div className="flex aspect-square w-full items-center justify-center rounded-2xl bg-[var(--tb-surface)] ring-1 ring-[var(--tb-line)]">
         {logo ? (
-          <img src={`${IMG}/logos/${logo}.svg`} alt="" className="h-12 w-12 invert" />
+          <img src={asset(`logos/${logo}.svg`)} alt="" className="h-12 w-12 invert" />
         ) : Icon ? (
           <Icon size={44} className="text-[var(--tb-accent)]" aria-hidden="true" />
         ) : null}
@@ -83,7 +94,7 @@ function Monitor() {
     <figure className="flex w-40 flex-none flex-col items-center text-center sm:w-44">
       <div className="w-full rounded-xl bg-[#1b1f24] p-1.5 shadow-[0_0_40px_-10px_var(--tb-accent)] ring-1 ring-[#2a3038]">
         <div className="aspect-[16/10] overflow-hidden rounded-md">
-          <img src={`${IMG}/chart.jpg`} alt="A trading chart on a monitor" loading="lazy" className="h-full w-full object-cover" />
+          <img src={asset("chart.jpg")} alt="A trading chart on a monitor" loading="lazy" className="h-full w-full object-cover" />
         </div>
       </div>
       <div className="mx-auto h-3 w-8 bg-[#2a3038]" aria-hidden="true" />
@@ -101,7 +112,7 @@ function Band({ children, title, logo, subtitle }: {
   return (
     <div className="relative rounded-3xl border border-dashed border-[var(--tb-accent)]/50 bg-[var(--tb-accent)]/[0.04] p-5 pt-9">
       <div className="absolute -top-3.5 left-5 flex items-center gap-2 rounded-full bg-[#0b0d10] px-3 py-1 text-xs font-medium text-[var(--tb-accent)] ring-1 ring-[var(--tb-accent)]/50">
-        {logo && <img src={`${IMG}/logos/${logo}.svg`} alt="" className="h-3.5 w-3.5 invert" />}
+        {logo && <img src={asset(`logos/${logo}.svg`)} alt="" className="h-3.5 w-3.5 invert" />}
         {title}
       </div>
       {subtitle && <p className="mb-4 text-center text-xs text-[var(--tb-muted)]">{subtitle}</p>}
