@@ -25,17 +25,38 @@ import { go } from "../lib/route";
 
 const IMG = "/how";
 
+/** Where a device's screen sits in its photo, as percentages of the photo. */
+interface Screen { src: string; left: number; top: number; width: number; height: number; radius: number }
+
 /**
  * A real object: a photo in a rounded frame, with its name and one line.
  * Every device frame shares one height, so phone, tablet and watch line up.
+ * A ``screen`` lays a chart over the device's own display, which is why that
+ * photo is shown whole (its aspect kept) rather than cropped to the frame.
  */
-function Photo({ src, alt, name, line, width = "w-28" }: {
-  src: string; alt: string; name: string; line: string; width?: string;
+function Photo({ src, alt, name, line, width = "w-28", screen, aspect }: {
+  src: string; alt: string; name: string; line: string; width?: string; screen?: Screen; aspect?: string;
 }) {
   return (
     <figure className={`flex flex-none flex-col items-center text-center ${width}`}>
-      <div className="h-32 w-full overflow-hidden rounded-2xl bg-[var(--tb-surface-2)] ring-1 ring-[var(--tb-line)] sm:h-36">
-        <img src={`${IMG}/${src}`} alt={alt} loading="lazy" className="h-full w-full object-cover" />
+      <div className="flex h-32 w-full items-center justify-center overflow-hidden rounded-2xl bg-[var(--tb-surface-2)] ring-1 ring-[var(--tb-line)] sm:h-36">
+        <div className={`relative h-full ${aspect ?? "w-full"}`}>
+          <img src={`${IMG}/${src}`} alt={alt} loading="lazy" className="h-full w-full object-cover" />
+          {screen && (
+            <img
+              src={`${IMG}/${screen.src}`}
+              alt=""
+              aria-hidden="true"
+              loading="lazy"
+              className="absolute object-cover"
+              style={{
+                left: `${screen.left}%`, top: `${screen.top}%`,
+                width: `${screen.width}%`, height: `${screen.height}%`,
+                borderRadius: `${screen.radius}%`,
+              }}
+            />
+          )}
+        </div>
       </div>
       <figcaption className="mt-2 text-sm font-medium">{name}</figcaption>
       <div className="text-xs leading-snug text-[var(--tb-muted)]">{line}</div>
@@ -125,8 +146,9 @@ function Lan({ icon: Icon, name, children }: { icon: LucideIcon; name: string; c
 const CREDITS = [
   { what: "iPhone", title: "Apple iPhone 15 Pro", by: "IPHONE 15", license: "CC BY-SA 4.0",
     page: "https://commons.wikimedia.org/wiki/File:Apple_iPhone_15_Pro.jpg", cropped: true },
-  { what: "iPad", title: "SAKURAKO - iPad Pro.", by: "MIKI Yoshihito", license: "CC BY 2.0",
-    page: "https://commons.wikimedia.org/wiki/File:SAKURAKO_-_iPad_Pro._(41019504540).jpg", cropped: false },
+  { what: "iPad", title: "IPad Air 11-inch (M2) front side", by: "茅野ふたば", license: "CC BY-SA 4.0",
+    page: "https://commons.wikimedia.org/wiki/File:IPad_Air_11-inch_(M2)_front_side_(20250525_154539).jpg",
+    cropped: false, note: "screen replaced with the chart photograph" },
   { what: "Apple Watch", title: "Apple Watch Series 7; January 2022 (01)", by: "MIKI Yoshihito", license: "CC BY 2.0",
     page: "https://commons.wikimedia.org/wiki/File:Apple_Watch_Series_7;_January_2022_(01).jpg", cropped: true },
   { what: "Mac mini", title: "Mac mini M4 2024-11-16 1", by: "Yelderberry", license: "CC BY-SA 4.0",
@@ -173,7 +195,15 @@ export default function HowItWorks() {
             <Wire label="Tailscale joins both networks into one private tailnet" down />
             <Lan icon={Hotel} name="Hotel network">
               <div className="flex justify-center">
-                <Photo src="ipad.jpg" alt="An iPad in use" name="iPad" line="Siri Shortcut, on the hotel's Wi-Fi" width="w-36" />
+                <Photo
+                  src="ipad.jpg"
+                  alt="An iPad showing a trading chart"
+                  name="iPad"
+                  line="Siri Shortcut, on the hotel's Wi-Fi"
+                  width="w-48 sm:w-52"
+                  aspect="aspect-[4/3]"
+                  screen={{ src: "chart.jpg", left: 10.4, top: 12.3, width: 81.8, height: 75.7, radius: 2.5 }}
+                />
               </div>
             </Lan>
           </div>
@@ -243,7 +273,8 @@ export default function HowItWorks() {
             {CREDITS.map((c) => (
               <li key={c.what}>
                 {c.what}: <a href={c.page} className="underline">{c.title}</a> by {c.by}, {c.license}
-                {c.cropped ? ", cropped" : ""}.
+                {c.cropped ? ", cropped" : ""}
+                {"note" in c && c.note ? `, ${c.note}` : ""}.
               </li>
             ))}
           </ul>
