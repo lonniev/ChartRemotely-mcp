@@ -15,9 +15,12 @@ Run locally:
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
+from fastmcp.tools import ToolResult
+from fastmcp.utilities.types import Image
 from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -26,7 +29,7 @@ from tollbooth.credential_validators import validate_btcpay_creds
 from tollbooth.runtime import OperatorRuntime, register_standard_tools
 from tollbooth.tool_identity import STANDARD_IDENTITIES, ToolIdentity
 
-from chartremotely_mcp import __version__, agents
+from chartremotely_mcp import __version__, agents, snapshot
 from chartremotely_mcp.config import get_settings
 from chartremotely_mcp.store import AgentStore
 
@@ -50,11 +53,21 @@ mcp = FastMCP(
         "2. Run `chartremotely pair` on that machine — it prints a code\n"
         "3. Call chart_pair_agent(code, label) here to adopt it\n"
         "4. Call chart_get_shortcut for the Apple Shortcut (free)\n\n"
+        "## Managing displays\n"
+        "chart_agent_status lists your displays and whether each is live; "
+        "chart_forget_display removes one you no longer use. "
+        "chart_snapshot_display returns a picture of what a display shows.\n"
+        "The web app at https://chartremotely.tollbooth-dpyc.com does all of "
+        "this from a browser.\n\n"
         "## Pricing\n"
-        "Pairing, status and the Shortcut are free — charging for setup "
-        "taxes the wrong thing. chart_show_chart and chart_read_chart are "
-        "metered. Use `chart_check_price` to preview and "
-        "`chart_check_balance` to see your balance."
+        "Pairing, status, forgetting and the Shortcut are free — charging "
+        "for setup taxes the wrong thing. chart_show_chart, chart_read_chart "
+        "and chart_snapshot_display are metered, and a display that does not "
+        "answer costs nothing. Use `chart_check_price` to preview and "
+        "`chart_check_balance` to see your balance.\n\n"
+        "Every tool that takes an npub needs a proof: call "
+        "chart_request_npub_proof, then chart_receive_npub_proof, and pass "
+        "the dpop_token it returns."
     ),
 )
 
@@ -69,6 +82,8 @@ READ_CHART_UUID   = "26fe821a-9e92-4cd1-be2c-c20d1d6aaff8"
 PAIR_AGENT_UUID   = "3a71987b-0e46-4344-9ef6-ab17d987b7ba"
 AGENT_STATUS_UUID = "52aa883a-e561-4bce-aee8-171237fc23b3"
 GET_SHORTCUT_UUID = "62681384-7298-4ece-869d-902834fc746f"
+FORGET_DISPLAY_UUID = "737cdc6a-8ca4-4540-9c4d-512602657e09"
+SNAPSHOT_UUID     = "5c2fd96f-4096-4529-adbe-683371e3b543"
 
 _DOMAIN_TOOLS = [
     ToolIdentity(
@@ -94,6 +109,18 @@ _DOMAIN_TOOLS = [
         capability="agent_status",
         category="read",
         intent="List paired displays and whether they are connected",
+    ),
+    ToolIdentity(
+        tool_id=FORGET_DISPLAY_UUID,
+        capability="forget_display",
+        category="write",
+        intent="Remove a paired display and its secret",
+    ),
+    ToolIdentity(
+        tool_id=SNAPSHOT_UUID,
+        capability="snapshot_display",
+        category="read",
+        intent="Return a picture of what a paired display shows",
     ),
     ToolIdentity(
         tool_id=GET_SHORTCUT_UUID,
@@ -206,6 +233,8 @@ async def pair_agent(
         code: The pairing code the agent printed.
         label: What to call this display, e.g. "east wall". Used to address it later.
     """
+    if err := await runtime.require_caller_proof(npub, dpop_token, "pair_agent"):
+        return err
     try:
         agent = await (await store()).claim(code, npub, label)
     except KeyError as exc:
@@ -216,6 +245,8 @@ async def pair_agent(
 @tool
 async def agent_status(npub: NPUB_FIELD = "", dpop_token: str = "") -> dict[str, Any]:
     """List the displays paired to you, and whether each is connected."""
+    if err := await runtime.require_caller_proof(npub, dpop_token, "agent_status"):
+        return err
     owned = await (await store()).for_npub(npub)
     return {
         "displays": [
@@ -223,6 +254,29 @@ async def agent_status(npub: NPUB_FIELD = "", dpop_token: str = "") -> dict[str,
             for a in owned
         ],
     }
+
+
+@tool
+async def forget_display(
+    display: str,
+    npub: NPUB_FIELD = "",
+    dpop_token: str = "",
+) -> dict[str, Any]:
+    """Remove one of your displays, and the secret it signed in with.
+
+    Free. The machine stops receiving commands at once; pair it again with
+    `chartremotely pair` if you want it back.
+
+    Args:
+        display: The display's name, or its agent_id when several share a name.
+    """
+    if err := await runtime.require_caller_proof(npub, dpop_token, "forget_display"):
+        return err
+    try:
+        agent = await (await store()).forget(npub, display)
+    except LookupError as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "forgot": agent.label, "agent_id": agent.agent_id}
 
 
 @tool
@@ -248,6 +302,28 @@ async def get_shortcut(npub: NPUB_FIELD = "", dpop_token: str = "") -> dict[str,
 # ---------------------------------------------------------------------------
 
 
+NO_ANSWER = "the display did not answer; is the agent running?"
+
+
+async def _relay(npub: str, display: str, command: str) -> tuple[agents.Agent, str]:
+    """Send one command to one of the caller's displays and await its reply.
+
+    Raises ValueError for anything that is not the caller's to pay for - an
+    unknown display, or one that never answered - because ``paid_tool``
+    rolls the debit back only when the body raises. Returning ``ok: False``
+    instead kept the fare for a command that went nowhere.
+    """
+    db = await store()
+    try:
+        agent = await db.resolve(npub, display or None)
+    except LookupError as exc:
+        raise ValueError(str(exc)) from None
+    try:
+        return agent, await db.send(agent.agent_id, command)
+    except TimeoutError:
+        raise ValueError(NO_ANSWER) from None
+
+
 @tool
 @runtime.paid_tool(SHOW_CHART_UUID)
 async def show_chart(
@@ -265,17 +341,7 @@ async def show_chart(
             swing, daily, weekly, ticks, micro. Omit to leave it unchanged.
         display: Which display, when several are paired. Omit if you have one.
     """
-    db = await store()
-    try:
-        agent = await db.resolve(npub, display or None)
-    except LookupError as exc:
-        return {"ok": False, "error": str(exc)}
-    command = f"set {security} | {scale}" if scale else security
-    try:
-        reply = await db.send(agent.agent_id, command)
-    except TimeoutError:
-        return {"ok": False, "display": agent.label,
-                "error": "the display did not answer; is the agent running?"}
+    agent, reply = await _relay(npub, display, f"set {security} | {scale}" if scale else security)
     return {"ok": not reply.startswith("ERR"), "display": agent.label, "result": reply}
 
 
@@ -291,16 +357,33 @@ async def read_chart(
     Args:
         display: Which display, when several are paired.
     """
-    db = await store()
-    try:
-        agent = await db.resolve(npub, display or None)
-    except LookupError as exc:
-        return {"ok": False, "error": str(exc)}
-    try:
-        reply = await db.send(agent.agent_id, "read")
-    except TimeoutError:
-        return {"ok": False, "display": agent.label, "error": "the display did not answer"}
+    agent, reply = await _relay(npub, display, "read")
     return {"ok": not reply.startswith("ERR"), "display": agent.label, "result": reply}
+
+
+@tool
+@runtime.paid_tool(SNAPSHOT_UUID)
+async def snapshot_display(
+    display: str = "",
+    npub: NPUB_FIELD = "",
+    dpop_token: str = "",
+) -> ToolResult | dict[str, Any]:
+    """Take a picture of what one of your displays is showing, right now.
+
+    Nothing is kept: the picture exists only in this reply. A display that
+    is offline, or that cannot capture its chart, costs nothing.
+
+    Args:
+        display: Which display, when several are paired.
+    """
+    agent, reply = await _relay(npub, display, "snapshot")
+    jpeg = snapshot.parse(reply)
+    taken_at = datetime.now(UTC).isoformat(timespec="seconds")
+    return ToolResult(
+        content=[Image(data=jpeg, format="jpeg").to_image_content()],
+        structured_content={"ok": True, "display": agent.label,
+                            "agent_id": agent.agent_id, "taken_at": taken_at},
+    )
 
 
 # ---------------------------------------------------------------------------

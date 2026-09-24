@@ -221,11 +221,44 @@ class AgentStore:
                 raise LookupError(
                     f"no display named {display!r}; you have: "
                     + ", ".join(a.label for a in owned))
-            return match[0]
+            # Re-pairing leaves the old row behind under the same name. The
+            # live one is the one the caller means; owned is oldest-first,
+            # so ties still resolve the same way every time.
+            live = [a for a in match if a.connected()]
+            return (live or match)[0]
         if len(owned) > 1:
             raise LookupError("several displays are paired - name one: "
                               + ", ".join(a.label for a in owned))
         return owned[0]
+
+    async def forget(self, npub: str, display: str) -> Agent:
+        """Remove one of the caller's displays, and everything it left behind.
+
+        Only ever the caller's own: the display is looked up among the rows
+        paired to ``npub``, never by id alone. A name shared by several rows
+        is refused rather than guessed - forgetting is not undoable, so the
+        caller names the one they mean by its id.
+        """
+        owned = await self.for_npub(npub)
+        wanted = display.strip()
+        match = [a for a in owned if a.agent_id == wanted] or [
+            a for a in owned if a.label.lower() == wanted.lower()]
+        if not match:
+            raise LookupError(f"no display named {display!r}")
+        if len(match) > 1:
+            raise LookupError(
+                f"several displays are named {display!r} - name one by id: "
+                + ", ".join(a.agent_id for a in match))
+        agent = match[0]
+        for table in ("chart_commands", "chart_pairings"):
+            await self._neon._execute(
+                f"DELETE FROM {self._t(table)} WHERE agent_id = $1", [agent.agent_id])
+        await self._neon._execute(
+            f"DELETE FROM {self._t('chart_agents')} WHERE agent_id = $1 AND npub = $2",
+            [agent.agent_id, npub])
+        await self._runtime.delete_patron_credential(
+            npub, self.SECRET_FIELD.format(agent_id=agent.agent_id))
+        return agent
 
     # -- command bus -----------------------------------------------------
 

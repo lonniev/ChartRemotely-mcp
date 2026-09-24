@@ -190,3 +190,62 @@ async def test_schema_adds_collected_at_to_an_existing_table():
     await AgentStore(neon_vault=neon, runtime=FakeRuntime()).ensure_schema()
 
     assert any("ADD COLUMN IF NOT EXISTS collected_at" in sql for sql in neon.sql)
+
+
+async def test_a_shared_name_goes_to_the_live_display(monkeypatch):
+    """Re-pairing leaves the old row behind under the same name; a command
+    must reach the machine that is actually listening."""
+    s = store()
+    stale = agents.Agent(agent_id="old", npub="npub1x", label="display", secret="")
+    live = agents.Agent(agent_id="new", npub="npub1x", label="display", secret="",
+                        last_seen=time.time())
+
+    async def both(npub): return [stale, live]
+    monkeypatch.setattr(s, "for_npub", both)
+    assert (await s.resolve("npub1x", "display")).agent_id == "new"
+
+
+class ForgettingRuntime(FakeRuntime):
+    async def delete_patron_credential(self, npub, field, *, service=None):
+        return self.creds.pop((npub, field), None) is not None
+
+
+async def test_forget_clears_every_trace_including_the_vault_secret(monkeypatch):
+    runtime = ForgettingRuntime()
+    runtime.creds[("npub1x", "agent_secret_a1")] = "s3cret"
+    s = store(runtime=runtime)
+    desk = agents.Agent(agent_id="a1", npub="npub1x", label="desk", secret="")
+
+    async def mine(npub): return [desk] if npub == "npub1x" else []
+    monkeypatch.setattr(s, "for_npub", mine)
+
+    assert (await s.forget("npub1x", "Desk")).agent_id == "a1"
+    deletes = [q for q in s._neon.sql if q.startswith("DELETE")]
+    assert {q.split()[2] for q in deletes} == {
+        "op.chart_commands", "op.chart_pairings", "op.chart_agents"}
+    # The agents row is deleted only when it belongs to the caller.
+    assert "npub = $2" in next(q for q in deletes if "chart_agents" in q)
+    assert runtime.creds == {}
+
+
+async def test_forget_never_reaches_another_patrons_display(monkeypatch):
+    s = store()
+
+    async def mine(npub): return []
+    monkeypatch.setattr(s, "for_npub", mine)
+    with pytest.raises(LookupError):
+        await s.forget("npub1intruder", "a1")
+    assert s._neon.sql == []
+
+
+async def test_forget_refuses_to_guess_between_displays_sharing_a_name(monkeypatch):
+    s = store(runtime=ForgettingRuntime())
+    twins = [agents.Agent(agent_id=i, npub="npub1x", label="display", secret="")
+             for i in ("a1", "a2")]
+
+    async def mine(npub): return twins
+    monkeypatch.setattr(s, "for_npub", mine)
+    with pytest.raises(LookupError, match="a1, a2"):
+        await s.forget("npub1x", "display")
+    # Naming one by id works.
+    assert (await s.forget("npub1x", "a2")).agent_id == "a2"

@@ -23,12 +23,19 @@ automation with a voice front end is not.
 |---|---|---|
 | `get_shortcut` | **free** | Returns the Apple Shortcut, ready to import |
 | `pair_agent` | free | Binds an agent to the caller's npub |
-| `agent_status` | free | Which agents are paired, and are they connected |
+| `agent_status` | free | Which displays are paired, and are they connected |
+| `forget_display` | free | Removes a display and the secret it signed in with |
 | `show_chart` | metered | Put a security on a paired display |
 | `read_chart` | metered | What a display is currently showing |
+| `snapshot_display` | metered | A JPEG of the display's chart window, right now |
 
-`show_chart` returns a cropped image of the chart's own window buffer. A
-remote command you cannot see is otherwise indistinguishable from one that
+Every tool that takes an npub needs a proof of that npub (`request_npub_proof`,
+then `receive_npub_proof`); `get_shortcut` hands out a public file and does not.
+
+A metered call to a display that never answers - offline, or not running the
+agent - is refunded, and so is one naming a display you do not have.
+`snapshot_display` keeps nothing: the picture exists only in the reply, so a
+remote command you cannot see is no longer indistinguishable from one that
 silently failed.
 
 ## What it deliberately cannot do
