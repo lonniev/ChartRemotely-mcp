@@ -5,12 +5,21 @@
 
 import { callTool, callToolWithContent } from "@tollbooth-dpyc/web";
 
+/** One picture a display kept after its chart changed: the newest of that symbol. */
+export interface KeptPicture {
+  /** The key to ask for it by. */
+  symbol: string;
+  /** How to show it: the ticker, or "Chart" when the agent could not read one. */
+  name: string;
+  taken_at: string;
+}
+
 export interface Display {
   label: string;
   agent_id: string;
   connected: boolean;
-  /** When the display last kept a picture after a chart change, if within the hour. */
-  latest_at?: string | null;
+  /** Pictures kept within the hour, one per symbol, newest first. */
+  kept?: KeptPicture[];
 }
 
 interface Failure {
@@ -51,29 +60,38 @@ export interface Snapshot {
   /** A data: URL the page can put straight into an <img>. */
   src: string;
   takenAt: string;
+  /** Set on a kept picture: which symbol it shows. */
+  symbol?: string;
+  name?: string;
 }
 
 /** Metered. Costs nothing when the display is offline or cannot capture. */
 export function takeSnapshot(agentId: string): Promise<Snapshot> {
-  return picture("snapshot_display", agentId);
+  return picture("snapshot_display", { display: agentId });
 }
 
-/** Metered. The picture the display kept after its chart last changed; nothing kept costs nothing. */
-export function takeLatest(agentId: string): Promise<Snapshot> {
-  return picture("latest_snapshot", agentId);
+/**
+ * Metered. A picture the display kept after its chart changed — that symbol's,
+ * or the newest of any when no symbol is given. Nothing kept costs nothing.
+ */
+export function takeLatest(agentId: string, symbol = ""): Promise<Snapshot> {
+  return picture("latest_snapshot", symbol ? { display: agentId, symbol } : { display: agentId });
 }
 
-async function picture(tool: string, agentId: string): Promise<Snapshot> {
-  const { data, images } = await callToolWithContent<{ taken_at?: string } & Failure>(
-    tool,
-    { display: agentId },
-    { timeoutMs: 60_000 },
-  );
+async function picture(tool: string, args: Record<string, string>): Promise<Snapshot> {
+  const { data, images } = await callToolWithContent<
+    { taken_at?: string; symbol?: string; name?: string } & Failure
+  >(tool, args, { timeoutMs: 60_000 });
   const err = failed(data);
   if (err) throw new Error(err);
   const img = images[0];
   if (!img) throw new Error("The display answered without a picture.");
-  return { src: `data:${img.mimeType};base64,${img.data}`, takenAt: data.taken_at ?? new Date().toISOString() };
+  return {
+    src: `data:${img.mimeType};base64,${img.data}`,
+    takenAt: data.taken_at ?? new Date().toISOString(),
+    symbol: data.symbol,
+    name: data.name,
+  };
 }
 
 export interface Shortcut {

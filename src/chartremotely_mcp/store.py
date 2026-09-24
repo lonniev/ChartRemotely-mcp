@@ -35,11 +35,13 @@ from typing import Any
 from chartremotely_mcp.agents import (
     CODE_TTL_SECONDS,
     COMMAND_TIMEOUT_SECONDS,
+    LATEST_KEEP,
     LATEST_TTL_SECONDS,
     Agent,
     new_agent_id,
     new_pairing_code,
     new_secret,
+    symbol_key,
 )
 
 #: How often a waiting caller re-reads its command row. Small enough to feel
@@ -119,15 +121,23 @@ class AgentStore:
             "CREATE INDEX IF NOT EXISTS idx_chart_commands_pending "
             f"ON {self._t('chart_commands')} (agent_id, claimed_at)"
         )
-        # One row per display: the newest picture, sealed. taken_at stays in
-        # the clear so "is there a newer one?" never needs a decrypt.
+        # The newest picture of each symbol a display has shown, sealed.
+        # taken_at stays in the clear so "which is newest?" and the hourly
+        # sweep never need a decrypt.
         await self._neon._execute(
-            f"CREATE TABLE IF NOT EXISTS {self._t('chart_latest')} ("
-            "    agent_id TEXT PRIMARY KEY,"
+            f"CREATE TABLE IF NOT EXISTS {self._t('chart_pictures')} ("
+            "    agent_id TEXT NOT NULL,"
+            "    symbol TEXT NOT NULL,"
             "    taken_at TIMESTAMPTZ NOT NULL DEFAULT now(),"
-            "    image TEXT NOT NULL"
+            "    image TEXT NOT NULL,"
+            "    PRIMARY KEY (agent_id, symbol)"
             ")"
         )
+        # Migration: chart_pictures replaces chart_latest, which kept one
+        # picture per display. Those pictures are disposable - sealed, and
+        # gone within the hour anyway - so the old table is dropped rather
+        # than copied. Idempotent: once it is gone this does nothing.
+        await self._neon._execute(f"DROP TABLE IF EXISTS {self._t('chart_latest')}")
 
     # -- pairing ---------------------------------------------------------
 
@@ -264,7 +274,7 @@ class AgentStore:
                 f"several displays are named {display!r} - name one by id: "
                 + ", ".join(a.agent_id for a in match))
         agent = match[0]
-        for table in ("chart_commands", "chart_pairings", "chart_latest"):
+        for table in ("chart_commands", "chart_pairings", "chart_pictures"):
             await self._neon._execute(
                 f"DELETE FROM {self._t(table)} WHERE agent_id = $1", [agent.agent_id])
         await self._neon._execute(
@@ -274,54 +284,88 @@ class AgentStore:
             npub, self.SECRET_FIELD.format(agent_id=agent.agent_id))
         return agent
 
-    # -- latest picture --------------------------------------------------
+    # -- kept pictures ---------------------------------------------------
     #
     # A chart picture can carry what the patron has on screen, so it is kept
-    # only sealed, only the newest per display, and only for an hour. AAD
-    # binds the ciphertext to its display: a row copied onto another display's
-    # key will not open.
+    # only sealed, only the newest per symbol, for at most LATEST_KEEP
+    # symbols per display, and each only for an hour. AAD binds a ciphertext
+    # to its display AND its symbol: a row copied onto another display, or
+    # relabelled as another symbol, will not open.
 
     @staticmethod
-    def _latest_aad(agent_id: str) -> str:
-        return f"{agent_id}|latest"
+    def _latest_aad(agent_id: str, symbol: str) -> str:
+        return f"{agent_id}|latest|{symbol}"
 
-    async def keep_latest(self, agent_id: str, data_url: str) -> None:
-        """Replace a display's kept picture. Refuses when it cannot be sealed."""
+    async def _sweep_pictures(self) -> None:
+        await self._neon._execute(
+            f"DELETE FROM {self._t('chart_pictures')} "
+            f"WHERE taken_at <= now() - interval '{LATEST_TTL_SECONDS} seconds'")
+
+    async def keep_latest(self, agent_id: str, data_url: str, symbol: str = "") -> None:
+        """Keep a display's picture of one symbol, replacing that symbol's last.
+
+        Only the display's LATEST_KEEP most recent symbols survive. Refuses
+        when the picture cannot be sealed, and when ``symbol`` is not
+        symbol-shaped (ValueError).
+        """
+        key = symbol_key(symbol)
         if self._cipher is None:
             raise RuntimeError("no vault cipher: a picture is never stored in the clear")
-        sealed = self._cipher.encrypt(data_url, aad=self._latest_aad(agent_id))
+        sealed = self._cipher.encrypt(data_url, aad=self._latest_aad(agent_id, key))
+        table = self._t("chart_pictures")
         await self._neon._execute(
-            f"INSERT INTO {self._t('chart_latest')} (agent_id, image, taken_at) "
-            "VALUES ($1, $2, now()) "
-            "ON CONFLICT (agent_id) DO UPDATE SET image = EXCLUDED.image, taken_at = now()",
-            [agent_id, sealed])
+            f"INSERT INTO {table} (agent_id, symbol, image, taken_at) "
+            "VALUES ($1, $2, $3, now()) "
+            "ON CONFLICT (agent_id, symbol) "
+            "DO UPDATE SET image = EXCLUDED.image, taken_at = now()",
+            [agent_id, key, sealed])
+        await self._neon._execute(
+            f"DELETE FROM {table} WHERE agent_id = $1 AND symbol NOT IN ("
+            f"    SELECT symbol FROM {table} WHERE agent_id = $1 "
+            f"    ORDER BY taken_at DESC LIMIT {LATEST_KEEP})",
+            [agent_id])
 
-    async def latest_times(self, npub: str) -> dict[str, float]:
-        """When each of the caller's displays last had a picture kept, if still kept."""
+    async def kept_symbols(self, npub: str) -> dict[str, list[tuple[str, float]]]:
+        """Per display of the caller's, the symbols still kept, newest first."""
         result = await self._neon._execute(
-            f"SELECT l.agent_id, EXTRACT(EPOCH FROM l.taken_at) AS taken "
-            f"FROM {self._t('chart_latest')} l "
+            f"SELECT l.agent_id, l.symbol, EXTRACT(EPOCH FROM l.taken_at) AS taken "
+            f"FROM {self._t('chart_pictures')} l "
             f"JOIN {self._t('chart_agents')} a ON a.agent_id = l.agent_id "
-            f"WHERE a.npub = $1 AND l.taken_at > now() - interval '{LATEST_TTL_SECONDS} seconds'",
+            f"WHERE a.npub = $1 AND l.taken_at > now() - interval '{LATEST_TTL_SECONDS} seconds' "
+            "ORDER BY l.taken_at DESC",
             [npub])
-        return {r["agent_id"]: float(r["taken"]) for r in result.get("rows", [])}
+        kept: dict[str, list[tuple[str, float]]] = {}
+        for r in result.get("rows", []):
+            kept.setdefault(r["agent_id"], []).append((r["symbol"], float(r["taken"])))
+        return kept
 
-    async def latest(self, agent_id: str) -> tuple[str, float] | None:
-        """A display's kept picture as (data URL, taken at), or None.
+    async def latest(self, agent_id: str,
+                     symbol: str | None = None) -> tuple[str, float, str] | None:
+        """A display's kept picture as (data URL, taken at, symbol key), or None.
 
-        A picture past its hour is deleted here rather than shown.
+        ``symbol`` None or empty means the display's newest picture of any
+        symbol; otherwise that symbol's (case-insensitive). Pictures past
+        their hour are deleted here rather than shown.
         """
-        await self._neon._execute(
-            f"DELETE FROM {self._t('chart_latest')} "
-            f"WHERE taken_at <= now() - interval '{LATEST_TTL_SECONDS} seconds'")
-        result = await self._neon._execute(
-            f"SELECT image, EXTRACT(EPOCH FROM taken_at) AS taken "
-            f"FROM {self._t('chart_latest')} WHERE agent_id = $1", [agent_id])
+        await self._sweep_pictures()
+        table = self._t("chart_pictures")
+        if symbol:
+            result = await self._neon._execute(
+                f"SELECT symbol, image, EXTRACT(EPOCH FROM taken_at) AS taken "
+                f"FROM {table} WHERE agent_id = $1 AND symbol = $2",
+                [agent_id, symbol_key(symbol)])
+        else:
+            result = await self._neon._execute(
+                f"SELECT symbol, image, EXTRACT(EPOCH FROM taken_at) AS taken "
+                f"FROM {table} WHERE agent_id = $1 ORDER BY taken_at DESC LIMIT 1",
+                [agent_id])
         rows = result.get("rows", [])
         if not rows or self._cipher is None:
             return None
-        data_url = self._cipher.decrypt(rows[0]["image"], aad=self._latest_aad(agent_id))
-        return data_url, float(rows[0]["taken"])
+        row = rows[0]
+        key = row["symbol"]
+        data_url = self._cipher.decrypt(row["image"], aad=self._latest_aad(agent_id, key))
+        return data_url, float(row["taken"]), key
 
     # -- command bus -----------------------------------------------------
 

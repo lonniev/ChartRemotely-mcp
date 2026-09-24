@@ -51,19 +51,29 @@ class FakeStore:
     async def claim(self, code, npub, label):
         return Agent(agent_id="new", npub=npub, label=label, secret="s")
 
-    async def latest_times(self, npub):
-        return {k: v[1] for k, v in self.kept.items()}
+    async def kept_symbols(self, npub):
+        out = {}
+        for (agent_id, symbol), (_, taken) in sorted(
+                self.kept.items(), key=lambda kv: -kv[1][1]):
+            out.setdefault(agent_id, []).append((symbol, taken))
+        return out
 
-    async def latest(self, agent_id):
-        return self.kept.get(agent_id)
+    async def latest(self, agent_id, symbol=None):
+        mine = [(k[1], v) for k, v in self.kept.items() if k[0] == agent_id]
+        if symbol:
+            mine = [m for m in mine if m[0] == symbol]
+        if not mine:
+            return None
+        key, (data_url, taken) = max(mine, key=lambda m: m[1][1])
+        return data_url, taken, key
 
     async def authenticate(self, agent_id, secret):
         return self.displays[0] if (agent_id, secret) == ("a1", "s1") else None
 
-    async def keep_latest(self, agent_id, data_url):
+    async def keep_latest(self, agent_id, data_url, symbol=""):
         if getattr(self, "no_cipher", False):
             raise RuntimeError("no cipher")
-        self.kept = {**self.kept, agent_id: (data_url, 1700000000.0)}
+        self.kept = {**self.kept, (agent_id, symbol): (data_url, 1700000000.0)}
 
 
 @pytest.fixture
@@ -220,9 +230,22 @@ def push(fake, monkeypatch, **body):
 
 def test_an_agent_can_keep_its_latest_picture(monkeypatch):
     fake = FakeStore()
-    r = push(fake, monkeypatch, agent_id="a1", secret="s1", image=GOOD_IMAGE)
+    r = push(fake, monkeypatch, agent_id="a1", secret="s1", image=GOOD_IMAGE, symbol="pltr")
     assert r.status_code == 200 and r.json() == {"kept": True}
-    assert fake.kept["a1"][0] == GOOD_IMAGE
+    assert fake.kept[("a1", "PLTR")][0] == GOOD_IMAGE
+
+
+def test_a_picture_without_a_symbol_is_kept_as_chart(monkeypatch):
+    fake = FakeStore()
+    r = push(fake, monkeypatch, agent_id="a1", secret="s1", image=GOOD_IMAGE)
+    assert r.status_code == 200 and list(fake.kept) == [("a1", "-")]
+
+
+@pytest.mark.parametrize("bad", ["<img src=x>", "A" * 16, "PL TR", 42, ["PLTR"]])
+def test_a_symbol_that_is_not_symbol_shaped_is_refused(monkeypatch, bad):
+    fake = FakeStore()
+    r = push(fake, monkeypatch, agent_id="a1", secret="s1", image=GOOD_IMAGE, symbol=bad)
+    assert r.status_code == 400 and fake.kept == {}
 
 
 def test_a_stranger_cannot_keep_a_picture(monkeypatch):
@@ -244,22 +267,66 @@ def test_no_cipher_means_nothing_is_kept(monkeypatch):
     assert r.status_code == 503 and fake.kept == {}
 
 
-async def test_status_says_when_a_display_last_kept_a_picture(monkeypatch, billing):
+def _two_symbols(fake):
+    other = snapshot.PREFIX + base64.b64encode(JPEG + b"nvda").decode()
+    fake.kept = {("a1", "PLTR"): (GOOD_IMAGE, 1700000000.0),
+                 ("a1", "NVDA"): (other, 1700000060.0)}
+
+
+async def test_status_lists_each_kept_symbol_newest_first(monkeypatch, billing):
     fake = use(monkeypatch, FakeStore())
-    fake.kept = {"a1": (GOOD_IMAGE, 1700000000.0)}
+    _two_symbols(fake)
+    fake.kept[("a1", "-")] = (GOOD_IMAGE, 1699999000.0)
     result = await call("agent_status", dpop_token="good")
-    assert result.structured_content["displays"][0]["latest_at"] == "2023-11-14T22:13:20+00:00"
+    assert result.structured_content["displays"][0]["kept"] == [
+        {"symbol": "NVDA", "name": "NVDA", "taken_at": "2023-11-14T22:14:20+00:00"},
+        {"symbol": "PLTR", "name": "PLTR", "taken_at": "2023-11-14T22:13:20+00:00"},
+        {"symbol": "-", "name": "Chart", "taken_at": "2023-11-14T21:56:40+00:00"},
+    ]
+
+
+async def test_status_with_nothing_kept_lists_nothing(monkeypatch, billing):
+    use(monkeypatch, FakeStore())
+    result = await call("agent_status", dpop_token="good")
+    assert result.structured_content["displays"][0]["kept"] == []
 
 
 async def test_the_kept_picture_is_shown_and_charged_once(monkeypatch, billing):
     fake = use(monkeypatch, FakeStore())
-    fake.kept = {"a1": (GOOD_IMAGE, 1700000000.0)}
+    fake.kept = {("a1", "PLTR"): (GOOD_IMAGE, 1700000000.0)}
     result = await call("latest_snapshot", dpop_token="good")
     [image] = result.content
     assert base64.b64decode(image.data) == JPEG
     assert result.structured_content["taken_at"] == "2023-11-14T22:13:20+00:00"
+    assert result.structured_content["symbol"] == "PLTR"
     assert fake.sent == [], "showing the kept picture never wakes the display"
     assert (billing["debit"], billing["rollback"]) == (1, 0)
+
+
+async def test_no_symbol_shows_the_newest_and_a_symbol_shows_its_own(monkeypatch, billing):
+    fake = use(monkeypatch, FakeStore())
+    _two_symbols(fake)
+    newest = await call("latest_snapshot", dpop_token="good")
+    assert newest.structured_content["symbol"] == "NVDA"
+    older = await call("latest_snapshot", symbol="pltr", dpop_token="good")
+    assert older.structured_content["symbol"] == "PLTR"
+    assert base64.b64decode(older.content[0].data) == JPEG
+    assert (billing["debit"], billing["rollback"]) == (2, 0)
+
+
+async def test_a_symbol_not_kept_costs_nothing(monkeypatch, billing):
+    fake = use(monkeypatch, FakeStore())
+    _two_symbols(fake)
+    result = await call("latest_snapshot", symbol="TSLA", dpop_token="good")
+    assert billing["rollback"] == 1
+    assert "no picture of TSLA from the last hour" in str(result.structured_content)
+
+
+async def test_a_malformed_symbol_costs_nothing(monkeypatch, billing):
+    fake = use(monkeypatch, FakeStore())
+    _two_symbols(fake)
+    await call("latest_snapshot", symbol="<script>", dpop_token="good")
+    assert billing["rollback"] == 1
 
 
 async def test_no_kept_picture_costs_nothing(monkeypatch, billing):
