@@ -44,7 +44,7 @@ const PIECES: { icon: LucideIcon; title: string; text: string }[] = [
   { icon: Mic, title: "Your voice", text: "A Siri Shortcut on iPhone, iPad or Apple Watch." },
   { icon: Bot, title: "Your agent", text: "Any MCP client drives the same screens: show a chart, read it, take its picture." },
   { icon: Camera, title: "Your screens", text: "Every chart change leaves a fresh picture here for an hour, one tap to view." },
-  { icon: Zap, title: "Your sats", text: "Pay per request from a prepaid Lightning balance. Sign in with a Nostr key." },
+  { icon: Zap, title: "Pay per request", text: "A prepaid Bitcoin Lightning balance, and a Nostr key for sign-in." },
 ];
 
 export default function Welcome({ signedIn }: { signedIn: boolean }) {
@@ -129,11 +129,11 @@ export default function Welcome({ signedIn }: { signedIn: boolean }) {
       </p>
 
       <section className="mt-12 rounded-2xl border border-[var(--tb-line)] p-6">
-        <div className="font-medium">Another Tollbooth DPYC service</div>
+        <div className="font-medium">A Tollbooth DPYC™ service</div>
         <p className="mt-2 text-sm leading-relaxed text-[var(--tb-muted)]">
-          ChartRemotely is an operator on the Tollbooth DPYC network: an MCP server that earns by the request in
-          Bitcoin Lightning, priced live from the operator's Pricing Studio with no code changes. The same kit turns any
-          useful tool into a small business.
+          ChartRemotely is an operator on the Tollbooth DPYC™ network — DPYC™ stands for Don't Pester Your Customer™.
+          It is an MCP server that earns by the request over Bitcoin Lightning, priced live from the operator's Pricing
+          Studio with no code changes. The same framework turns any useful tool into a business.
         </p>
         <button type="button" onClick={() => go("how")} className="mt-3 text-sm text-[var(--tb-accent)]">
           See how it fits together →
@@ -143,7 +143,12 @@ export default function Welcome({ signedIn }: { signedIn: boolean }) {
       <footer className="mt-16 flex flex-wrap gap-5 border-t border-[var(--tb-line)] py-8 text-sm text-[var(--tb-muted)]">
         <a href="https://github.com/lonniev/ChartRemotely-agent">Agent</a>
         <a href="https://github.com/lonniev/ChartRemotely-mcp">Operator</a>
-        <a href="https://github.com/lonniev/tollbooth-dpyc">Tollbooth DPYC</a>
+        <a href="https://github.com/lonniev/tollbooth-dpyc">Tollbooth DPYC™</a>
+        <p className="basis-full text-[11px] leading-relaxed">
+          Tollbooth DPYC™, DPYC™ and Don't Pester Your Customer™ are trademarks of Lonnie VanZandt. thinkorswim, Schwab,
+          Apple, iPhone, iPad, Apple Watch and Siri are trademarks of their respective owners. ChartRemotely is not
+          affiliated with or endorsed by them.
+        </p>
       </footer>
     </div>
   );
