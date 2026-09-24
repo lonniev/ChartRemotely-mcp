@@ -9,6 +9,11 @@ on:
 
 jobs:
   deploy:
+    # The shared workflow can only have what its caller grants, and this
+    # repo's default token is read-only.
+    permissions:
+      contents: read
+      deployments: write
     uses: lonniev/dpyc-community/.github/workflows/deploy-frontend.yml@main
     with:
       pages-project: chartremotely-app
