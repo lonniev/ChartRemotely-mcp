@@ -5,6 +5,7 @@ import { Avatar, NpubGate, useSession } from "@tollbooth-dpyc/web/react";
 import { go, useView } from "./lib/route";
 import Profile from "./views/Profile";
 import Screens from "./views/Screens";
+import HowItWorks from "./views/HowItWorks";
 import Welcome from "./views/Welcome";
 
 export default function App() {
@@ -51,6 +52,7 @@ export default function App() {
 
       <main>
         {view === "welcome" && <Welcome signedIn={session.signedIn} />}
+        {view === "how" && <HowItWorks />}
         {view === "signin" && (
           <NpubGate
             notice={session.notice || undefined}
