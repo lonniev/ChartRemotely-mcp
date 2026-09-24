@@ -26,6 +26,8 @@ _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 CODE_LENGTH = 6
 CODE_TTL_SECONDS = 15 * 60
 COMMAND_TIMEOUT_SECONDS = 45
+#: How long a display's latest picture is kept for anyone to look at.
+LATEST_TTL_SECONDS = 60 * 60
 
 
 def new_pairing_code() -> str:

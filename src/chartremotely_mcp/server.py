@@ -56,13 +56,15 @@ mcp = FastMCP(
         "## Managing displays\n"
         "chart_agent_status lists your displays and whether each is live; "
         "chart_forget_display removes one you no longer use. "
-        "chart_snapshot_display returns a picture of what a display shows.\n"
+        "chart_snapshot_display returns a picture of what a display shows; "
+        "chart_latest_snapshot shows the one it kept after its chart last "
+        "changed (kept encrypted, newest only, for an hour).\n"
         "The web app at https://chartremotely.tollbooth-dpyc.com does all of "
         "this from a browser.\n\n"
         "## Pricing\n"
         "Pairing, status, forgetting and the Shortcut are free — charging "
-        "for setup taxes the wrong thing. chart_show_chart, chart_read_chart "
-        "and chart_snapshot_display are metered, and a display that does not "
+        "for setup taxes the wrong thing. chart_show_chart, chart_read_chart, "
+        "chart_snapshot_display and chart_latest_snapshot are metered, and a display that does not "
         "answer costs nothing. Use `chart_check_price` to preview and "
         "`chart_check_balance` to see your balance.\n\n"
         "Every tool that takes an npub needs a proof: call "
@@ -84,6 +86,7 @@ AGENT_STATUS_UUID = "52aa883a-e561-4bce-aee8-171237fc23b3"
 GET_SHORTCUT_UUID = "62681384-7298-4ece-869d-902834fc746f"
 FORGET_DISPLAY_UUID = "737cdc6a-8ca4-4540-9c4d-512602657e09"
 SNAPSHOT_UUID     = "5c2fd96f-4096-4529-adbe-683371e3b543"
+LATEST_SNAPSHOT_UUID = "23b296eb-5c4c-44d0-9554-f9324619da35"
 
 _DOMAIN_TOOLS = [
     ToolIdentity(
@@ -121,6 +124,12 @@ _DOMAIN_TOOLS = [
         capability="snapshot_display",
         category="read",
         intent="Return a picture of what a paired display shows",
+    ),
+    ToolIdentity(
+        tool_id=LATEST_SNAPSHOT_UUID,
+        capability="latest_snapshot",
+        category="read",
+        intent="Show the picture a display kept after its last chart change",
     ),
     ToolIdentity(
         tool_id=GET_SHORTCUT_UUID,
@@ -247,10 +256,13 @@ async def agent_status(npub: NPUB_FIELD = "", dpop_token: str = "") -> dict[str,
     """List the displays paired to you, and whether each is connected."""
     if err := await runtime.require_caller_proof(npub, dpop_token, "agent_status"):
         return err
-    owned = await (await store()).for_npub(npub)
+    db = await store()
+    owned = await db.for_npub(npub)
+    kept = await db.latest_times(npub)
     return {
         "displays": [
-            {"label": a.label, "agent_id": a.agent_id, "connected": a.connected()}
+            {"label": a.label, "agent_id": a.agent_id, "connected": a.connected(),
+             "latest_at": _iso(kept[a.agent_id]) if a.agent_id in kept else None}
             for a in owned
         ],
     }
@@ -303,6 +315,19 @@ async def get_shortcut(npub: NPUB_FIELD = "", dpop_token: str = "") -> dict[str,
 
 
 NO_ANSWER = "the display did not answer; is the agent running?"
+
+
+def _iso(epoch: float) -> str:
+    return datetime.fromtimestamp(epoch, UTC).isoformat(timespec="seconds")
+
+
+def _picture(agent: agents.Agent, jpeg: bytes, taken_at: str) -> ToolResult:
+    """One picture of a display, as both an image block and its facts."""
+    return ToolResult(
+        content=[Image(data=jpeg, format="jpeg").to_image_content()],
+        structured_content={"ok": True, "display": agent.label,
+                            "agent_id": agent.agent_id, "taken_at": taken_at},
+    )
 
 
 async def _relay(npub: str, display: str, command: str) -> tuple[agents.Agent, str]:
@@ -377,13 +402,34 @@ async def snapshot_display(
         display: Which display, when several are paired.
     """
     agent, reply = await _relay(npub, display, "snapshot")
-    jpeg = snapshot.parse(reply)
-    taken_at = datetime.now(UTC).isoformat(timespec="seconds")
-    return ToolResult(
-        content=[Image(data=jpeg, format="jpeg").to_image_content()],
-        structured_content={"ok": True, "display": agent.label,
-                            "agent_id": agent.agent_id, "taken_at": taken_at},
-    )
+    return _picture(agent, snapshot.parse(reply), datetime.now(UTC).isoformat(timespec="seconds"))
+
+
+@tool
+@runtime.paid_tool(LATEST_SNAPSHOT_UUID)
+async def latest_snapshot(
+    display: str = "",
+    npub: NPUB_FIELD = "",
+    dpop_token: str = "",
+) -> ToolResult | dict[str, Any]:
+    """Show the picture a display took after its chart last changed.
+
+    Each display keeps only its newest picture, encrypted, for an hour. None
+    kept - or one older than that - costs nothing.
+
+    Args:
+        display: Which display, when several are paired.
+    """
+    db = await store()
+    try:
+        agent = await db.resolve(npub, display or None)
+    except LookupError as exc:
+        raise ValueError(str(exc)) from None
+    kept = await db.latest(agent.agent_id)
+    if kept is None:
+        raise ValueError(f"{agent.label} has no picture from the last hour")
+    data_url, taken = kept
+    return _picture(agent, snapshot.parse(data_url), _iso(taken))
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +470,30 @@ async def agent_poll(request: Request) -> JSONResponse:
     await db.touch(agent.agent_id)
     command = await db.next_for(agent.agent_id, get_settings().agent_poll_seconds)
     return JSONResponse(command or {})
+
+
+@mcp.custom_route("/agent/snapshot", methods=["POST"])
+async def agent_snapshot(request: Request) -> JSONResponse:
+    """An agent's picture of its chart, taken just after the chart changed.
+
+    Checked like any reply from a patron's machine, then kept sealed as that
+    display's latest. Nothing is stored when it cannot be encrypted.
+    """
+    body = await request.json()
+    db = await store()
+    agent = await db.authenticate(str(body.get("agent_id", "")), str(body.get("secret", "")))
+    if agent is None:
+        return JSONResponse({"error": "unknown agent"}, status_code=403)
+    image = str(body.get("image", ""))
+    try:
+        snapshot.parse(image)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    try:
+        await db.keep_latest(agent.agent_id, image)
+    except RuntimeError:
+        return JSONResponse({"error": "pictures cannot be stored right now"}, status_code=503)
+    return JSONResponse({"kept": True})
 
 
 @mcp.custom_route("/agent/result", methods=["POST"])

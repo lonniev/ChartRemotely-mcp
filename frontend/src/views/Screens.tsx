@@ -1,18 +1,21 @@
 /**
  * Every paired screen, one slide each, and a picture of it on request.
  *
- * Nothing refreshes by itself: every picture is a paid request, so a picture is
- * taken only when the patron taps for one. Pictures are kept for this visit
- * only — the service stores none.
+ * No picture is fetched by itself: every one is a paid request, so each waits
+ * for a tap. What does refresh is the free status list, so a display whose
+ * chart just changed says so — "Changed 10:42 · tap to view" — and a tap shows
+ * the picture it kept (the newest only, for an hour).
  */
 
+const STATUS_EVERY_MS = 30_000;
+
 import { useCallback, useEffect, useState } from "react";
-import { Camera, Loader2, MonitorOff, MonitorPlay, Plus, X } from "lucide-react";
+import { Camera, Eye, Loader2, MonitorOff, MonitorPlay, Plus, X } from "lucide-react";
 import { ProofRequiredError } from "@tollbooth-dpyc/web";
 import Carousel from "../components/Carousel";
-import { listDisplays, takeSnapshot, type Display, type Snapshot } from "../lib/chart";
+import { listDisplays, takeLatest, takeSnapshot, type Display, type Snapshot } from "../lib/chart";
 import { go } from "../lib/route";
-import { displayNames, orderDisplays, takenAgo } from "../lib/screens";
+import { clockTime, displayNames, hasNewer, orderDisplays, takenAgo } from "../lib/screens";
 
 interface Shot {
   snap?: Snapshot;
@@ -36,16 +39,28 @@ export default function Screens() {
 
   useEffect(load, [load]);
 
+  // The status list is free; re-read it while the page is being looked at, so
+  // a chart changed by voice shows up here without a reload.
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      listDisplays()
+        .then((d) => setDisplays(orderDisplays(d)))
+        .catch(() => {});
+    }, STATUS_EVERY_MS);
+    return () => clearInterval(t);
+  }, []);
+
   // Keeps "4 min ago" honest without re-fetching anything.
   useEffect(() => {
     const t = setInterval(() => tick((n) => n + 1), 30_000);
     return () => clearInterval(t);
   }, []);
 
-  async function shoot(agentId: string) {
+  async function shoot(agentId: string, kept = false) {
     setShots((s) => ({ ...s, [agentId]: { ...s[agentId], busy: true, error: undefined } }));
     try {
-      const snap = await takeSnapshot(agentId);
+      const snap = await (kept ? takeLatest(agentId) : takeSnapshot(agentId));
       setShots((s) => ({ ...s, [agentId]: { snap } }));
     } catch (e) {
       if (e instanceof ProofRequiredError) return;
@@ -116,6 +131,15 @@ export default function Screens() {
                     {d.connected ? <MonitorPlay size={44} /> : <MonitorOff size={44} />}
                     <span className="text-sm">{d.connected ? "Tap the camera to look" : "Offline"}</span>
                   </div>
+                )}
+                {!shot.busy && d.latest_at && hasNewer(d.latest_at, shot.snap?.takenAt) && (
+                  <button
+                    type="button"
+                    onClick={() => void shoot(d.agent_id, true)}
+                    className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-[var(--tb-accent)] px-3 py-1.5 text-xs font-medium text-[var(--tb-on-accent)] shadow"
+                  >
+                    <Eye size={14} /> Changed {clockTime(d.latest_at)} · tap to view
+                  </button>
                 )}
                 {shot.busy && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/50">

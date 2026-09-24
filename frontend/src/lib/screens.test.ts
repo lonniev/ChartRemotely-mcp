@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { displayNames, normalizeCode, orderDisplays, takenAgo, wrapIndex } from "./screens.ts";
+import { displayNames, hasNewer, normalizeCode, orderDisplays, takenAgo, wrapIndex } from "./screens.ts";
 
 const d = (label: string, agent_id: string, connected: boolean) => ({ label, agent_id, connected });
 
@@ -36,4 +36,12 @@ test("indexes wrap both ways", () => {
   assert.equal(wrapIndex(-1, 3), 2);
   assert.equal(wrapIndex(3, 3), 0);
   assert.equal(wrapIndex(5, 0), 0);
+});
+
+test("a kept picture is offered only when it is newer than the one on screen", () => {
+  assert.equal(hasNewer("2026-09-24T10:42:00Z", undefined), true);
+  assert.equal(hasNewer("2026-09-24T10:42:00Z", "2026-09-24T10:40:00Z"), true);
+  assert.equal(hasNewer("2026-09-24T10:42:00Z", "2026-09-24T10:42:00Z"), false);
+  assert.equal(hasNewer(null, undefined), false);
+  assert.equal(hasNewer("garbage", undefined), false);
 });

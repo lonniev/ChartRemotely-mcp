@@ -52,3 +52,20 @@ export function normalizeCode(raw: string): string {
 export function wrapIndex(i: number, n: number): number {
   return n === 0 ? 0 : ((i % n) + n) % n;
 }
+
+/**
+ * Whether a display has kept a picture newer than the one on screen — the cue
+ * to offer "Changed · tap to view". Nothing shown yet counts as older.
+ */
+export function hasNewer(latestAt: string | null | undefined, shownAt: string | undefined): boolean {
+  if (!latestAt) return false;
+  const kept = Date.parse(latestAt);
+  if (Number.isNaN(kept)) return false;
+  return !shownAt || kept > Date.parse(shownAt);
+}
+
+/** "10:42" in the viewer's own clock. */
+export function clockTime(iso: string): string {
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? "" : new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}

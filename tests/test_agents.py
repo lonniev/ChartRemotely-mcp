@@ -3,6 +3,8 @@
 import time
 
 import pytest
+from cryptography.exceptions import InvalidTag
+from tollbooth.vault_encryption import VaultCipher
 
 from chartremotely_mcp import agents
 from chartremotely_mcp.store import AgentStore
@@ -222,7 +224,7 @@ async def test_forget_clears_every_trace_including_the_vault_secret(monkeypatch)
     assert (await s.forget("npub1x", "Desk")).agent_id == "a1"
     deletes = [q for q in s._neon.sql if q.startswith("DELETE")]
     assert {q.split()[2] for q in deletes} == {
-        "op.chart_commands", "op.chart_pairings", "op.chart_agents"}
+        "op.chart_commands", "op.chart_pairings", "op.chart_latest", "op.chart_agents"}
     # The agents row is deleted only when it belongs to the caller.
     assert "npub = $2" in next(q for q in deletes if "chart_agents" in q)
     assert runtime.creds == {}
@@ -249,3 +251,66 @@ async def test_forget_refuses_to_guess_between_displays_sharing_a_name(monkeypat
         await s.forget("npub1x", "display")
     # Naming one by id works.
     assert (await s.forget("npub1x", "a2")).agent_id == "a2"
+
+
+# -- the latest picture ------------------------------------------------------
+
+PICTURE = "data:image/jpeg;base64,/9j/4AAQSkZJRg=="
+
+
+def sealed_store(*responses):
+    neon = FakeNeon(*responses)
+    neon._cipher = VaultCipher(nsec_hex="11" * 32)
+    return AgentStore(neon_vault=neon, runtime=FakeRuntime()), neon
+
+
+class Recording(FakeNeon):
+    async def _execute(self, sql, params=None):
+        self.params = getattr(self, "params", []) + [params]
+        return await super()._execute(sql, params)
+
+
+async def test_a_kept_picture_is_stored_sealed_never_in_the_clear():
+    neon = Recording()
+    neon._cipher = VaultCipher(nsec_hex="11" * 32)
+    s = AgentStore(neon_vault=neon, runtime=FakeRuntime())
+    await s.keep_latest("a1", PICTURE)
+    agent_id, stored = neon.params[-1]
+    assert agent_id == "a1"
+    assert "data:image" not in stored and "/9j/" not in stored
+    assert neon._cipher.decrypt(stored, aad="a1|latest") == PICTURE
+
+
+async def test_without_a_cipher_nothing_is_stored():
+    s = store()
+    with pytest.raises(RuntimeError):
+        await s.keep_latest("a1", PICTURE)
+    assert s._neon.sql == []
+
+
+async def test_a_picture_sealed_for_one_display_will_not_open_as_another():
+    s, neon = sealed_store()
+    sealed = neon._cipher.encrypt(PICTURE, aad="a1|latest")
+    neon.responses = [{"rows": []}, {"rows": [{"image": sealed, "taken": time.time()}]}]
+    with pytest.raises(InvalidTag):
+        await s.latest("b2")
+
+
+async def test_the_latest_picture_opens_for_its_own_display():
+    s, neon = sealed_store()
+    sealed = neon._cipher.encrypt(PICTURE, aad="a1|latest")
+    neon.responses = [{"rows": []}, {"rows": [{"image": sealed, "taken": 1700000000.0}]}]
+    assert await s.latest("a1") == (PICTURE, 1700000000.0)
+    # Pictures past their hour are swept before anything is read.
+    assert neon.sql[0].startswith("DELETE FROM op.chart_latest WHERE taken_at <=")
+
+
+async def test_nothing_kept_reads_as_none():
+    s, _ = sealed_store()
+    assert await s.latest("a1") is None
+
+
+async def test_latest_times_only_ever_cover_the_callers_displays():
+    s, neon = sealed_store({"rows": [{"agent_id": "a1", "taken": 1700000000.0}]})
+    assert await s.latest_times("npub1x") == {"a1": 1700000000.0}
+    assert "a.npub = $1" in neon.sql[0] and "taken_at > now()" in neon.sql[0]
