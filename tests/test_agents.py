@@ -403,16 +403,6 @@ async def test_the_migration_replaces_the_one_picture_table_and_is_idempotent():
 
 # -- naming a display ----------------------------------------------------------
 
-@pytest.mark.parametrize("said", ["Mac mini", "mac-mini", "macmini", "MAC_MINI", "mac.mini", "  Mac  Mini "])
-def test_spaces_hyphens_underscores_dots_and_case_do_not_count(said):
-    assert agents.display_key(said) == agents.display_key("Mac Mini") == "macmini"
-
-
-@pytest.mark.parametrize("said", ["mac", "mini mac", "Mac min", "macminis"])
-def test_nothing_else_is_forgiven(said):
-    assert agents.display_key(said) != agents.display_key("Mac Mini")
-
-
 async def test_a_display_is_found_by_its_normalised_name_or_its_id(monkeypatch):
     s = store()
     mini = agents.Agent(agent_id="a1", npub="n", label="Mac Mini", secret="")
@@ -433,5 +423,54 @@ async def test_twins_with_no_single_live_one_are_refused_not_guessed(monkeypatch
 
     async def mine(npub): return twins
     monkeypatch.setattr(s, "for_npub", mine)
-    with pytest.raises(AmbiguousDisplay, match="a1, a2"):
+    with pytest.raises(AmbiguousDisplay, match=r"desk \(a1\), desk \(a2\)"):
         await s.resolve("n", "Desk")
+
+
+def _owned(s, monkeypatch, *pairs, live=()):
+    """Give ``s`` the displays (agent_id, label) of npub "n", plus one of a stranger's."""
+    mine = [agents.Agent(agent_id=i, npub="n", label=label, secret="",
+                         last_seen=time.time() if i in live else 0.0) for i, label in pairs]
+    theirs = agents.Agent(agent_id="z9", npub="npub1stranger", label="Mac Mini", secret="",
+                          last_seen=time.time())
+
+    async def for_npub(npub): return [a for a in [*mine, theirs] if a.npub == npub]
+    monkeypatch.setattr(s, "for_npub", for_npub)
+    return {a.agent_id: a for a in mine}
+
+
+@pytest.mark.parametrize("said", ["mac mini", "mini mac", "mini", "macm", "mack meeny"])
+async def test_loose_names_find_the_display(monkeypatch, said):
+    s = store()
+    owned = _owned(s, monkeypatch, ("a1", "Mac Mini"), ("a2", "office wall"))
+    assert await s.resolve("n", said) is owned["a1"]
+
+
+async def test_an_exact_name_beats_a_looser_hit_on_another_display(monkeypatch):
+    s = store()
+    owned = _owned(s, monkeypatch, ("a1", "mini"), ("a2", "Mac Mini"))
+    assert await s.resolve("n", "Mini") is owned["a1"]
+
+
+async def test_a_loose_name_that_finds_several_is_refused_with_them(monkeypatch):
+    s = store()
+    _owned(s, monkeypatch, ("a1", "mac mini"), ("a2", "mac studio"))
+    with pytest.raises(AmbiguousDisplay) as caught:
+        await s.resolve("n", "mac")
+    assert [a.agent_id for a in caught.value.candidates] == ["a1", "a2"]
+    assert "mac mini (a1), mac studio (a2)" in str(caught.value)
+
+
+async def test_of_several_loose_hits_the_one_live_display_is_meant(monkeypatch):
+    s = store()
+    owned = _owned(s, monkeypatch, ("a1", "mac mini"), ("a2", "mac studio"), live=("a2",))
+    assert await s.resolve("n", "mac") is owned["a2"]
+
+
+async def test_loose_matching_never_reaches_another_owners_display(monkeypatch):
+    s = store()
+    _owned(s, monkeypatch, ("a1", "office wall"))
+    for said in ("mac mini", "mini", "z9"):
+        with pytest.raises(NoSuchDisplay) as caught:
+            await s.resolve("n", said)
+        assert caught.value.names == ["office wall"]

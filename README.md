@@ -51,6 +51,10 @@ agent - is refunded, and so is one naming a display you do not have.
 remote command you cannot see is no longer indistinguishable from one that
 silently failed.
 
+`display` may be said loosely: "mini mac", "mini" or "mack meeny" all find
+"Mac mini". A name that could mean several displays is answered with them
+(see [PROTOCOL.md](PROTOCOL.md#naming-a-display) for the rules).
+
 ## What it deliberately cannot do
 
 The vocabulary relayed to an agent is fixed, and the agent enforces it

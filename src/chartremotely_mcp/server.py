@@ -533,8 +533,8 @@ async def agent_forward(request: Request) -> JSONResponse:
     """One display hands a command to another of the SAME owner's displays.
 
     The Mac that heard "Hey Siri" names the display it was told, verbatim;
-    the lookup is by name or agent_id only (see ``display_key``), among the
-    caller's owner's displays and nobody else's. The command is relayed
+    the lookup is by agent_id or by a loosely matched name (see
+    ``displays.match``), among the caller's owner's displays and nobody else's. The command is relayed
     opaque, like any other, and the target's reply comes back to be spoken.
 
     Unmetered: the caller is an authenticated agent, not a patron's tool call.
