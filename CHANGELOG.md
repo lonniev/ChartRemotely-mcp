@@ -13,8 +13,11 @@ All notable changes to this project are documented here. The format follows
   with a hit deciding - exact name (case/space/hyphen/underscore/dot
   ignored) or agent_id; same words in any order; a subset of its words; a
   prefix; then American Soundex per word (same, then subset). Several hits
-  resolve to the one live display, else 409 with every candidate
-  (`label (agent_id)`); none is 404 with your names. Still owner-scoped
+  resolve to the one live display, else refused: tools name every candidate
+  as `label (agent_id)`, while `/agent/forward`'s 409 `error` is spoken and so
+  carries names only ("Which one: Mac mini or Mac studio?", or "Two displays
+  are named Mac mini; rename one at chartremotely.tollbooth-dpyc.com.").
+  None is 404 with your names. Still owner-scoped
   only. The matcher is `displays.match`, pure and dependency-free.
 - `POST /agent/forward`: a paired display hands a command to another display
   of the SAME owner, by name, and gets its reply back to speak — so "Hey Siri,

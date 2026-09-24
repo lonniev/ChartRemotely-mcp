@@ -29,13 +29,14 @@ from tollbooth.credential_validators import validate_btcpay_creds
 from tollbooth.runtime import OperatorRuntime, register_standard_tools
 from tollbooth.tool_identity import STANDARD_IDENTITIES, ToolIdentity
 
-from chartremotely_mcp import __version__, agents, snapshot
+from chartremotely_mcp import __version__, agents, displays, snapshot
 from chartremotely_mcp.config import get_settings
 from chartremotely_mcp.store import AgentStore, AmbiguousDisplay, NoSuchDisplay
 
 logger = logging.getLogger(__name__)
 
-SHORTCUT_URL = "https://chartremotely.tollbooth-dpyc.com/ChartRemotely.shortcut"
+SITE_URL = "chartremotely.tollbooth-dpyc.com"
+SHORTCUT_URL = f"https://{SITE_URL}/ChartRemotely.shortcut"
 
 mcp = FastMCP(
     "chartremotely",
@@ -528,6 +529,28 @@ def _spoken(value: object, limit: int) -> str | None:
     return text if 0 < len(text) <= limit and text.isprintable() else None
 
 
+_COUNT_WORDS = {2: "Two", 3: "Three", 4: "Four"}
+
+
+def _which_one(candidates: list[agents.Agent]) -> str:
+    """The ambiguity, as a sentence to be SPOKEN: display names only, never ids.
+
+    Distinct names become a question ("Which one: Mac mini or Mac studio?").
+    Names that are the same when said aloud cannot be told apart by voice at
+    all, so the reply says that and where to rename one.
+    """
+    by_key: dict[str, list[agents.Agent]] = {}
+    for a in candidates:
+        by_key.setdefault(displays.display_key(a.label), []).append(a)
+    for same in by_key.values():
+        if len(same) > 1:
+            count = _COUNT_WORDS.get(len(same), str(len(same)))
+            return (f"{count} displays are named {same[0].label}; "
+                    f"rename one at {SITE_URL}.")
+    names = [same[0].label for same in by_key.values()]
+    return f"Which one: {', '.join(names[:-1])} or {names[-1]}?"
+
+
 @mcp.custom_route("/agent/forward", methods=["POST"])
 async def agent_forward(request: Request) -> JSONResponse:
     """One display hands a command to another of the SAME owner's displays.
@@ -561,7 +584,7 @@ async def agent_forward(request: Request) -> JSONResponse:
         return JSONResponse({"error": f"no display named {display!r}", "displays": exc.names},
                             status_code=404)
     except AmbiguousDisplay as exc:
-        return JSONResponse({"error": str(exc),
+        return JSONResponse({"error": _which_one(exc.candidates),
                              "candidates": [{"label": a.label, "agent_id": a.agent_id}
                                             for a in exc.candidates]}, status_code=409)
     except LookupError:
