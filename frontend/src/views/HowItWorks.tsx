@@ -133,7 +133,7 @@ function Lan({ icon: Icon, name, children }: { icon: LucideIcon; name: string; c
   );
 }
 
-const CREDITS = [
+export const CREDITS = [
   { what: "iPhone", title: "Apple iPhone 15 Pro", by: "IPHONE 15", license: "CC BY-SA 4.0",
     page: "https://commons.wikimedia.org/wiki/File:Apple_iPhone_15_Pro.jpg", cropped: true },
   { what: "Apple Watch", title: "Apple Watch Series 7; January 2022 (01)", by: "MIKI Yoshihito", license: "CC BY 2.0",

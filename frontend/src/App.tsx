@@ -24,8 +24,9 @@ export default function App() {
 
   return (
     <div className="min-h-dvh">
-      <nav className="sticky top-0 z-40 flex items-center gap-2 border-b border-[var(--tb-line)] bg-[#0b0d10]/90 px-4 py-2.5 backdrop-blur">
-        <button type="button" onClick={() => go("welcome")} className="mr-auto font-semibold tracking-tight">
+      {/* Three columns so the centre action is centred on the page, not on the gap. */}
+      <nav className="sticky top-0 z-40 grid grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-[var(--tb-line)] bg-[#0b0d10]/90 px-4 py-2.5 backdrop-blur">
+        <button type="button" onClick={() => go("welcome")} className="justify-self-start font-semibold tracking-tight">
           Chart<span className="text-[var(--tb-accent)]">Remotely</span>
         </button>
         {session.signedIn ? (
@@ -33,18 +34,29 @@ export default function App() {
             <button
               type="button"
               onClick={() => go("screens")}
-              aria-label="Screens"
+              aria-label="My screens"
               aria-current={view === "screens"}
-              className={`rounded-full p-2 ${view === "screens" ? "text-[var(--tb-accent)]" : "text-[var(--tb-muted)]"}`}
+              className={`flex items-center gap-2 rounded-full border px-3 py-1.5 font-medium sm:px-4 ${
+                view === "screens"
+                  ? "border-[var(--tb-accent)] bg-[var(--tb-accent)] text-[var(--tb-on-accent)]"
+                  : "border-[var(--tb-line)] bg-[var(--tb-surface-2)] text-[var(--tb-accent)]"
+              }`}
             >
-              <MonitorPlay size={22} />
+              <MonitorPlay size={22} aria-hidden="true" />
+              <span className="hidden text-sm sm:inline">My screens</span>
             </button>
-            <button type="button" onClick={() => go("profile")} aria-label="Profile" aria-current={view === "profile"}>
+            <button
+              type="button"
+              onClick={() => go("profile")}
+              aria-label="Profile"
+              aria-current={view === "profile"}
+              className="justify-self-end"
+            >
               <Avatar value={avatarFor(session.npub)} size={32} />
             </button>
           </>
         ) : (
-          <>
+          <div className="col-start-3 flex items-center justify-self-end">
             {view !== "start" && (
               <button type="button" onClick={() => go("start")} className="rounded-full px-3 py-1.5 text-sm text-[var(--tb-accent)]">
                 Get started
@@ -55,7 +67,7 @@ export default function App() {
                 Sign in
               </button>
             )}
-          </>
+          </div>
         )}
       </nav>
 

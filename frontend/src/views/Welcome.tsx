@@ -16,6 +16,11 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { go } from "../lib/route";
+import chartShot from "../assets/welcome/chart-ge.jpg";
+import watchPhoto from "../assets/how/watch.jpg";
+import { CREDITS } from "./HowItWorks";
+
+const WATCH_CREDIT = CREDITS.find((c) => c.what === "Apple Watch")!;
 
 const DAY: { icon: LucideIcon; when: string; text: string }[] = [
   {
@@ -60,23 +65,8 @@ export default function Welcome({ signedIn }: { signedIn: boolean }) {
           Change the thinkorswim chart on any of your monitors by voice, from any room or any city, and get its
           picture back.
         </p>
-        <div className="mt-8 flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => go(signedIn ? "screens" : "start")}
-            className="rounded-full bg-[var(--tb-accent)] px-6 py-3 font-medium text-[var(--tb-on-accent)]"
-          >
-            {signedIn ? "My screens" : "Get started"}
-          </button>
-          {!signedIn && (
-            <button
-              type="button"
-              onClick={() => go("signin")}
-              className="rounded-full border border-[var(--tb-line)] px-6 py-3 font-medium"
-            >
-              Sign in
-            </button>
-          )}
+        {/* The way to learn more sits left; the way in sits right. */}
+        <div className="mt-8 flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={() => go("how")}
@@ -84,20 +74,43 @@ export default function Welcome({ signedIn }: { signedIn: boolean }) {
           >
             How it works
           </button>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
+            {!signedIn && (
+              <button
+                type="button"
+                onClick={() => go("signin")}
+                className="rounded-full border border-[var(--tb-line)] px-6 py-3 font-medium"
+              >
+                Sign in
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => go(signedIn ? "screens" : "start")}
+              className="rounded-full bg-[var(--tb-accent)] px-6 py-3 font-medium text-[var(--tb-on-accent)]"
+            >
+              {signedIn ? "My screens" : "Get started"}
+            </button>
+          </div>
         </div>
+
+        <SaidHereSeenThere />
       </header>
 
       <section aria-labelledby="day">
         <h2 id="day" className="mb-4 text-sm uppercase tracking-wider text-[var(--tb-muted)]">
           A trader on the move
         </h2>
-        <ol className="relative space-y-3 border-l border-[var(--tb-line)] pl-6">
+        <ol className="space-y-3">
           {DAY.map(({ icon: Icon, when, text }) => (
-            <li key={when} className="relative">
-              <span className="absolute -left-[37px] flex h-6 w-6 items-center justify-center rounded-full bg-[var(--tb-surface-2)] text-[var(--tb-accent)] ring-4 ring-[#0b0d10]">
-                <Icon size={14} aria-hidden="true" />
+            <li
+              key={when}
+              className="flex items-start gap-4 rounded-2xl border border-[var(--tb-line)] bg-[var(--tb-surface)] p-5"
+            >
+              <span className="flex h-14 w-14 flex-none items-center justify-center rounded-2xl bg-[var(--tb-accent)]/12 text-[var(--tb-accent)]">
+                <Icon size={30} aria-hidden="true" />
               </span>
-              <div className="rounded-2xl border border-[var(--tb-line)] bg-[var(--tb-surface)] p-5">
+              <div>
                 <div className="font-medium">{when}</div>
                 <p className="mt-1 text-sm text-[var(--tb-muted)]">{text}</p>
               </div>
@@ -154,11 +167,57 @@ export default function Welcome({ signedIn }: { signedIn: boolean }) {
         <a href="https://github.com/lonniev/ChartRemotely-mcp">Operator</a>
         <a href="https://github.com/lonniev/tollbooth-dpyc">Tollbooth DPYC™</a>
         <p className="basis-full text-[11px] leading-relaxed">
+          Chart: a thinkorswim capture made with ChartRemotely. {WATCH_CREDIT.what}:{" "}
+          <a href={WATCH_CREDIT.page} className="underline">
+            {WATCH_CREDIT.title}
+          </a>{" "}
+          by {WATCH_CREDIT.by}, {WATCH_CREDIT.license}, cropped, from Wikimedia Commons.
+        </p>
+        <p className="basis-full text-[11px] leading-relaxed">
           Tollbooth DPYC™, DPYC™ and Don't Pester Your Customer™ are trademarks of Lonnie VanZandt. thinkorswim, Schwab,
           Apple, iPhone, iPad, Apple Watch and Siri are trademarks of their respective owners. ChartRemotely is not
           affiliated with or endorsed by them.
         </p>
       </footer>
     </div>
+  );
+}
+
+/**
+ * The promise in one picture: a word said to a watch, and the chart it put on a
+ * monitor elsewhere. Both are photographs; only the bubble and labels are CSS.
+ */
+function SaidHereSeenThere() {
+  return (
+    <figure className="relative mt-12 pb-14 pl-8 sm:pb-16 sm:pl-20">
+      <div className="relative overflow-hidden rounded-2xl border border-[var(--tb-line)] shadow-[0_20px_60px_-20px_rgba(76,195,138,0.35)]">
+        <img
+          src={chartShot}
+          alt="A thinkorswim chart of GE Aerospace at thirty minutes, as captured from the monitor"
+          className="block aspect-[3/2] w-full object-cover object-left-top"
+          width={1200}
+          height={797}
+        />
+        <span className="absolute right-3 top-3 rounded-full bg-[#0b0d10]/85 px-3 py-1 text-xs font-medium text-[var(--tb-accent)] backdrop-blur">
+          Seen there · GE · 30m
+        </span>
+      </div>
+
+      <div className="absolute bottom-0 left-0 flex items-end gap-3">
+        <div className="relative w-20 flex-none overflow-hidden rounded-2xl border border-[var(--tb-line)] shadow-2xl sm:w-28">
+          <img src={watchPhoto} alt="An Apple Watch" className="block aspect-[4/5] w-full object-cover" />
+          {/* What the watch face shows, laid over the photograph's dark screen. */}
+          <span className="absolute inset-x-[18%] top-[24%] bottom-[18%] flex flex-col items-center justify-center text-center leading-tight">
+            <span className="text-[9px] text-[var(--tb-muted)] sm:text-[11px]">Siri</span>
+            <span className="text-xs font-semibold text-[var(--tb-accent)] sm:text-base">GE</span>
+            <span className="text-[9px] text-white sm:text-[11px]">30m</span>
+          </span>
+        </div>
+        <figcaption className="mb-3 max-w-[13rem] rounded-2xl sm:mb-5 sm:max-w-none sm:whitespace-nowrap rounded-bl-sm border border-[var(--tb-line)] bg-[var(--tb-surface-2)] px-4 py-2.5 text-sm shadow-xl">
+          “GE Aerospace. Thirty minutes.”
+          <span className="mt-0.5 block text-xs text-[var(--tb-muted)]">Said here, to a watch</span>
+        </figcaption>
+      </div>
+    </figure>
   );
 }

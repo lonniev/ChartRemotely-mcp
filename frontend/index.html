@@ -9,6 +9,12 @@
       content="ChartRemotely — put a security on a desktop chart anywhere in the world, by voice. See a live snapshot of every screen you have paired."
     />
     <title>ChartRemotely</title>
+    <!--
+      The readme below is for readers that never run JavaScript. A browser that
+      does run it hides the readme before first paint, so it never flashes.
+    -->
+    <script>document.documentElement.classList.add("js")</script>
+    <style>.js #static-readme{display:none}html,body{background:#0b0d10}</style>
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="ChartRemotely" />
     <meta property="og:title" content="ChartRemotely — say it here, see it there" />
@@ -19,9 +25,10 @@
     <div id="root">
       <!--
         What a reader without JavaScript sees: a crawler, an AI assistant's
-        fetcher, a slow phone before the app loads. The app replaces it on mount.
+        fetcher. A JavaScript browser never paints it (see the head); the app
+        replaces it on mount.
       -->
-      <main style="max-width:48rem;margin:0 auto;padding:24px 16px;font-family:system-ui,sans-serif;color:#e6edf3;background:#0b0d10;line-height:1.6">
+      <main id="static-readme" style="max-width:48rem;margin:0 auto;padding:24px 16px;font-family:system-ui,sans-serif;color:#e6edf3;background:#0b0d10;line-height:1.6">
         <h1>ChartRemotely — say it here, see it there</h1>
         <p>
           Put a security on a desktop chart anywhere in the world: a wall monitor
