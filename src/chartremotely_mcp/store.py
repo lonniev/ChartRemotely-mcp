@@ -35,6 +35,7 @@ from typing import Any
 from chartremotely_mcp.agents import (
     CODE_TTL_SECONDS,
     COMMAND_TIMEOUT_SECONDS,
+    LATEST_TTL_SECONDS,
     Agent,
     new_agent_id,
     new_pairing_code,
@@ -58,6 +59,10 @@ class AgentStore:
     def __init__(self, *, neon_vault: Any, runtime: Any) -> None:
         self._neon = neon_vault
         self._runtime = runtime
+        # The SDK's own cipher, keyed from the operator's nsec — never a local
+        # one. None when the vault was built without an nsec, and then nothing
+        # that must be encrypted is stored at all.
+        self._cipher = getattr(neon_vault, "_cipher", None)
 
     async def _put_secret(self, npub: str, agent_id: str, secret: str) -> None:
         await self._runtime.update_patron_credential(
@@ -113,6 +118,15 @@ class AgentStore:
         await self._neon._execute(
             "CREATE INDEX IF NOT EXISTS idx_chart_commands_pending "
             f"ON {self._t('chart_commands')} (agent_id, claimed_at)"
+        )
+        # One row per display: the newest picture, sealed. taken_at stays in
+        # the clear so "is there a newer one?" never needs a decrypt.
+        await self._neon._execute(
+            f"CREATE TABLE IF NOT EXISTS {self._t('chart_latest')} ("
+            "    agent_id TEXT PRIMARY KEY,"
+            "    taken_at TIMESTAMPTZ NOT NULL DEFAULT now(),"
+            "    image TEXT NOT NULL"
+            ")"
         )
 
     # -- pairing ---------------------------------------------------------
@@ -250,7 +264,7 @@ class AgentStore:
                 f"several displays are named {display!r} - name one by id: "
                 + ", ".join(a.agent_id for a in match))
         agent = match[0]
-        for table in ("chart_commands", "chart_pairings"):
+        for table in ("chart_commands", "chart_pairings", "chart_latest"):
             await self._neon._execute(
                 f"DELETE FROM {self._t(table)} WHERE agent_id = $1", [agent.agent_id])
         await self._neon._execute(
@@ -259,6 +273,55 @@ class AgentStore:
         await self._runtime.delete_patron_credential(
             npub, self.SECRET_FIELD.format(agent_id=agent.agent_id))
         return agent
+
+    # -- latest picture --------------------------------------------------
+    #
+    # A chart picture can carry what the patron has on screen, so it is kept
+    # only sealed, only the newest per display, and only for an hour. AAD
+    # binds the ciphertext to its display: a row copied onto another display's
+    # key will not open.
+
+    @staticmethod
+    def _latest_aad(agent_id: str) -> str:
+        return f"{agent_id}|latest"
+
+    async def keep_latest(self, agent_id: str, data_url: str) -> None:
+        """Replace a display's kept picture. Refuses when it cannot be sealed."""
+        if self._cipher is None:
+            raise RuntimeError("no vault cipher: a picture is never stored in the clear")
+        sealed = self._cipher.encrypt(data_url, aad=self._latest_aad(agent_id))
+        await self._neon._execute(
+            f"INSERT INTO {self._t('chart_latest')} (agent_id, image, taken_at) "
+            "VALUES ($1, $2, now()) "
+            "ON CONFLICT (agent_id) DO UPDATE SET image = EXCLUDED.image, taken_at = now()",
+            [agent_id, sealed])
+
+    async def latest_times(self, npub: str) -> dict[str, float]:
+        """When each of the caller's displays last had a picture kept, if still kept."""
+        result = await self._neon._execute(
+            f"SELECT l.agent_id, EXTRACT(EPOCH FROM l.taken_at) AS taken "
+            f"FROM {self._t('chart_latest')} l "
+            f"JOIN {self._t('chart_agents')} a ON a.agent_id = l.agent_id "
+            f"WHERE a.npub = $1 AND l.taken_at > now() - interval '{LATEST_TTL_SECONDS} seconds'",
+            [npub])
+        return {r["agent_id"]: float(r["taken"]) for r in result.get("rows", [])}
+
+    async def latest(self, agent_id: str) -> tuple[str, float] | None:
+        """A display's kept picture as (data URL, taken at), or None.
+
+        A picture past its hour is deleted here rather than shown.
+        """
+        await self._neon._execute(
+            f"DELETE FROM {self._t('chart_latest')} "
+            f"WHERE taken_at <= now() - interval '{LATEST_TTL_SECONDS} seconds'")
+        result = await self._neon._execute(
+            f"SELECT image, EXTRACT(EPOCH FROM taken_at) AS taken "
+            f"FROM {self._t('chart_latest')} WHERE agent_id = $1", [agent_id])
+        rows = result.get("rows", [])
+        if not rows or self._cipher is None:
+            return None
+        data_url = self._cipher.decrypt(rows[0]["image"], aad=self._latest_aad(agent_id))
+        return data_url, float(rows[0]["taken"])
 
     # -- command bus -----------------------------------------------------
 

@@ -9,6 +9,8 @@ export interface Display {
   label: string;
   agent_id: string;
   connected: boolean;
+  /** When the display last kept a picture after a chart change, if within the hour. */
+  latest_at?: string | null;
 }
 
 interface Failure {
@@ -52,9 +54,18 @@ export interface Snapshot {
 }
 
 /** Metered. Costs nothing when the display is offline or cannot capture. */
-export async function takeSnapshot(agentId: string): Promise<Snapshot> {
+export function takeSnapshot(agentId: string): Promise<Snapshot> {
+  return picture("snapshot_display", agentId);
+}
+
+/** Metered. The picture the display kept after its chart last changed; nothing kept costs nothing. */
+export function takeLatest(agentId: string): Promise<Snapshot> {
+  return picture("latest_snapshot", agentId);
+}
+
+async function picture(tool: string, agentId: string): Promise<Snapshot> {
   const { data, images } = await callToolWithContent<{ taken_at?: string } & Failure>(
-    "snapshot_display",
+    tool,
     { display: agentId },
     { timeoutMs: 60_000 },
   );

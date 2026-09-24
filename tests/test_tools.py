@@ -10,6 +10,7 @@ import time
 
 import pytest
 from fastmcp import Client
+from starlette.testclient import TestClient
 
 from chartremotely_mcp import server, snapshot
 from chartremotely_mcp.agents import Agent
@@ -28,6 +29,7 @@ class FakeStore:
             Agent(agent_id="a1", npub=NPUB, label="desk", secret="", last_seen=time.time())]
         self.sent: list[str] = []
         self.forgotten: list[str] = []
+        self.kept: dict = {}
 
     async def resolve(self, npub, display):
         return await AgentStore.resolve(self, npub, display)
@@ -48,6 +50,20 @@ class FakeStore:
 
     async def claim(self, code, npub, label):
         return Agent(agent_id="new", npub=npub, label=label, secret="s")
+
+    async def latest_times(self, npub):
+        return {k: v[1] for k, v in self.kept.items()}
+
+    async def latest(self, agent_id):
+        return self.kept.get(agent_id)
+
+    async def authenticate(self, agent_id, secret):
+        return self.displays[0] if (agent_id, secret) == ("a1", "s1") else None
+
+    async def keep_latest(self, agent_id, data_url):
+        if getattr(self, "no_cipher", False):
+            raise RuntimeError("no cipher")
+        self.kept = {**self.kept, agent_id: (data_url, 1700000000.0)}
 
 
 @pytest.fixture
@@ -188,3 +204,66 @@ def test_a_well_formed_reply_is_accepted():
 def test_anything_else_is_refused(reply, why):
     with pytest.raises(ValueError, match=why):
         snapshot.parse(reply)
+
+
+
+# -- the kept picture ----------------------------------------------------------
+
+GOOD_IMAGE = snapshot.PREFIX + base64.b64encode(JPEG).decode()
+
+
+def push(fake, monkeypatch, **body):
+    use(monkeypatch, fake)
+    with TestClient(server.mcp.http_app()) as client:
+        return client.post("/agent/snapshot", json=body)
+
+
+def test_an_agent_can_keep_its_latest_picture(monkeypatch):
+    fake = FakeStore()
+    r = push(fake, monkeypatch, agent_id="a1", secret="s1", image=GOOD_IMAGE)
+    assert r.status_code == 200 and r.json() == {"kept": True}
+    assert fake.kept["a1"][0] == GOOD_IMAGE
+
+
+def test_a_stranger_cannot_keep_a_picture(monkeypatch):
+    fake = FakeStore()
+    r = push(fake, monkeypatch, agent_id="a1", secret="guess", image=GOOD_IMAGE)
+    assert r.status_code == 403 and fake.kept == {}
+
+
+def test_anything_but_a_jpeg_is_refused(monkeypatch):
+    fake = FakeStore()
+    r = push(fake, monkeypatch, agent_id="a1", secret="s1", image="data:image/png;base64,AAAA")
+    assert r.status_code == 400 and fake.kept == {}
+
+
+def test_no_cipher_means_nothing_is_kept(monkeypatch):
+    fake = FakeStore()
+    fake.no_cipher = True
+    r = push(fake, monkeypatch, agent_id="a1", secret="s1", image=GOOD_IMAGE)
+    assert r.status_code == 503 and fake.kept == {}
+
+
+async def test_status_says_when_a_display_last_kept_a_picture(monkeypatch, billing):
+    fake = use(monkeypatch, FakeStore())
+    fake.kept = {"a1": (GOOD_IMAGE, 1700000000.0)}
+    result = await call("agent_status", dpop_token="good")
+    assert result.structured_content["displays"][0]["latest_at"] == "2023-11-14T22:13:20+00:00"
+
+
+async def test_the_kept_picture_is_shown_and_charged_once(monkeypatch, billing):
+    fake = use(monkeypatch, FakeStore())
+    fake.kept = {"a1": (GOOD_IMAGE, 1700000000.0)}
+    result = await call("latest_snapshot", dpop_token="good")
+    [image] = result.content
+    assert base64.b64decode(image.data) == JPEG
+    assert result.structured_content["taken_at"] == "2023-11-14T22:13:20+00:00"
+    assert fake.sent == [], "showing the kept picture never wakes the display"
+    assert (billing["debit"], billing["rollback"]) == (1, 0)
+
+
+async def test_no_kept_picture_costs_nothing(monkeypatch, billing):
+    use(monkeypatch, FakeStore())
+    result = await call("latest_snapshot", dpop_token="good")
+    assert billing["rollback"] == 1
+    assert "no picture from the last hour" in str(result.structured_content)
