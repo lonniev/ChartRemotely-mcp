@@ -61,17 +61,6 @@ def symbol_key(raw: object) -> str:
     return key
 
 
-#: What a display name is compared by: case, spaces, hyphens, underscores and
-#: dots do not count, so dictation's "Mac mini", "mac-mini" and "macmini" are
-#: one name. Nothing else is forgiven - no fuzzy matching, no guessing.
-_NAME_NOISE = re.compile(r"[\s\-_.]+")
-
-
-def display_key(name: str) -> str:
-    """A display name as it is matched: lower-cased, without spaces, hyphens, underscores or dots."""
-    return _NAME_NOISE.sub("", name).lower()
-
-
 def symbol_name(key: str) -> str:
     """How a stored symbol key is shown to people."""
     return UNLABELLED_NAME if key == UNLABELLED else key

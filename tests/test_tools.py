@@ -418,6 +418,24 @@ def test_twins_are_refused_with_the_candidates(monkeypatch):
     r = forward(fake, monkeypatch, display="wall", cmd="read")
     assert r.status_code == 409
     assert [c["agent_id"] for c in r.json()["candidates"]] == ["t1", "t2"]
+    assert r.json()["error"] == ("Two displays are named wall; "
+                                 "rename one at chartremotely.tollbooth-dpyc.com.")
+
+
+@pytest.mark.parametrize(("labels", "spoken"), [
+    (["Mac mini", "Mac studio"], "Which one: Mac mini or Mac studio?"),
+    (["Mac mini", "Mac studio", "Mac pro"], "Which one: Mac mini, Mac studio or Mac pro?"),
+])
+def test_a_loose_name_that_finds_several_is_spoken_as_a_question_without_ids(
+        monkeypatch, labels, spoken):
+    fake = ForwardingStore(displays=[
+        Agent(agent_id="a1", npub=NPUB, label="desk", secret="", last_seen=time.time()),
+        *[Agent(agent_id=f"m{i}", npub=NPUB, label=label, secret="")
+          for i, label in enumerate(labels)]])
+    r = forward(fake, monkeypatch, display="mac", cmd="read")
+    assert r.status_code == 409 and r.json()["error"] == spoken
+    assert not any(f"m{i}" in r.json()["error"] for i in range(len(labels)))
+    assert fake.to == []
 
 
 def test_a_display_that_never_answers_is_a_timeout(monkeypatch):

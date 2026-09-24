@@ -32,13 +32,13 @@ import secrets
 import time
 from typing import Any
 
+from chartremotely_mcp import displays
 from chartremotely_mcp.agents import (
     CODE_TTL_SECONDS,
     COMMAND_TIMEOUT_SECONDS,
     LATEST_KEEP,
     LATEST_TTL_SECONDS,
     Agent,
-    display_key,
     new_agent_id,
     new_pairing_code,
     new_secret,
@@ -65,8 +65,8 @@ class AmbiguousDisplay(LookupError):
 
     def __init__(self, wanted: str, candidates: list[Agent]) -> None:
         self.candidates = candidates
-        super().__init__(f"several displays are named {wanted!r} - name one by id: "
-                         + ", ".join(a.agent_id for a in candidates))
+        super().__init__(f"several displays answer to {wanted!r} - name one: "
+                         + ", ".join(f"{a.label} ({a.agent_id})" for a in candidates))
 
 
 class AgentStore:
@@ -254,10 +254,11 @@ class AgentStore:
     async def resolve(self, npub: str, display: str | None) -> Agent:
         """One of ``npub``'s displays, by agent_id or by name - never anyone else's.
 
-        A name matches under :func:`display_key` ("Mac mini" is "mac-mini").
-        Omitted, it means the only display there is. Raises NoSuchDisplay
-        when nothing matches and AmbiguousDisplay when several do and it is
-        not the case that exactly one of them is live.
+        A name is matched loosely by :func:`displays.match` ("mini mac" and
+        "mini" both find "Mac mini"). Omitted, it means the only display
+        there is. Raises NoSuchDisplay when nothing matches and
+        AmbiguousDisplay when several do and it is not the case that exactly
+        one of them is live.
         """
         owned = await self.for_npub(npub)
         if not owned:
@@ -267,15 +268,16 @@ class AgentStore:
                 raise LookupError("several displays are paired - name one: "
                                   + ", ".join(a.label for a in owned))
             return owned[0]
-        wanted = display_key(display)
+        named = set(displays.match(display, [a.label for a in owned]))
         match = [a for a in owned if a.agent_id == display.strip()] or [
-            a for a in owned if wanted and display_key(a.label) == wanted]
+            a for a in owned if a.label in named]
         if not match:
             raise NoSuchDisplay(display, owned)
         if len(match) == 1:
             return match[0]
-        # Re-pairing leaves the old row behind under the same name. The live
-        # one is the one the caller means - but only when there is exactly one.
+        # Re-pairing leaves the old row behind under the same name, and a
+        # loose name can find several. The live one is the one the caller
+        # means - but only when there is exactly one.
         live = [a for a in match if a.connected()]
         if len(live) == 1:
             return live[0]

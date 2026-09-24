@@ -77,11 +77,28 @@ the same owner. The hearing agent posts to `/agent/forward`:
 ```
 
 The operator authenticates the caller, finds `display` among the caller's
-owner's displays only — by agent_id, or by name ignoring case, spaces,
-hyphens, underscores and dots — relays `cmd` opaque, and returns
-`{display, reply}`. `{self: true}` means the name is the caller's own and it
-runs the command itself. 404 carries the owner's names (`displays`), 409 the
-twins (`candidates`), 503 an offline target, 504 no answer. Unmetered.
+owner's displays only — by agent_id, or by a loosely matched name (see
+"Naming a display") — relays `cmd` opaque, and returns `{display, reply}`.
+`{self: true}` means the name is the caller's own and it runs the command
+itself. 404 carries the owner's names (`displays`), 409 the displays the name
+could mean (`candidates`), 503 an offline target, 504 no answer. Unmetered.
+
+## Naming a display
+
+Every tool's `display` and `/agent/forward` resolve a name the same way, in
+the operator only (agents pass what was said through verbatim). Rules are
+tried in order and the first that finds anything decides:
+
+1. the same name ignoring case, spaces, hyphens, underscores and dots
+   ("mac-mini" is "Mac Mini"), or the exact agent_id;
+2. the same words in any order ("mini mac");
+3. every word said is a word of the name ("mini", "office" for "office wall");
+4. the start of the name ("macm");
+5. rules 2 and 3 on American Soundex codes, word by word ("mack meeny").
+
+One hit is the display. Several: the one live display among them, if exactly
+one is live; otherwise refused with the candidates. None: refused with the
+owner's names. Deterministic, no model.
 
 ## Failure modes worth naming
 
