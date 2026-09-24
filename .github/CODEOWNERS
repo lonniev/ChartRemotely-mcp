@@ -1,0 +1,27 @@
+# CODEOWNERS — the human gate for the agentic pipeline.
+#
+# Files covered here require @lonniev's review before merge (enforced by branch
+# protection: "Require review from Code Owners"). Files left UNCOVERED are eligible for
+# path-gated auto-merge once CI is green and QA applies qa/pass.
+#
+# Default-deny, then carve out: CODEOWNERS is LAST-MATCH-WINS, so the catch-all comes
+# first and anything not imagined yet lands under review.
+
+# Everything needs review …
+* @lonniev
+
+# … except the paths the pipeline is trusted to land on its own. These match
+# auto-merge.yml's low-risk allowlist, so what CODEOWNERS releases is exactly what
+# auto-merge will take.
+/tests/
+*.md
+
+# WHAT A PLAUSIBLE EDIT COULD BREAK HERE: this Operator relays commands to machines on
+# patrons' own networks and keeps pictures of their screens. Review with that in mind:
+# - the proof gates (runtime.require_caller_proof on pair_agent, agent_status,
+#   forget_display) — dropping one lets anyone who knows an npub see or remove its displays;
+# - snapshot.parse, the untrusted-input check on everything an agent sends back;
+# - store.keep_latest, which must refuse to store a picture it cannot encrypt, and its AAD
+#   binding a picture to its display;
+# - agent secrets living only in the patron credential vault, never in a column;
+# - forget_display's cascade, which must leave nothing of a forgotten display behind.
