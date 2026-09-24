@@ -6,6 +6,8 @@ import { go, useView } from "./lib/route";
 import Profile from "./views/Profile";
 import Screens from "./views/Screens";
 import HowItWorks from "./views/HowItWorks";
+import SaveKey from "./views/SaveKey";
+import Start from "./views/Start";
 import Welcome from "./views/Welcome";
 
 export default function App() {
@@ -42,17 +44,26 @@ export default function App() {
             </button>
           </>
         ) : (
-          view !== "signin" && (
-            <button type="button" onClick={() => go("signin")} className="rounded-full px-3 py-1.5 text-sm">
-              Sign in
-            </button>
-          )
+          <>
+            {view !== "start" && (
+              <button type="button" onClick={() => go("start")} className="rounded-full px-3 py-1.5 text-sm text-[var(--tb-accent)]">
+                Get started
+              </button>
+            )}
+            {view !== "signin" && (
+              <button type="button" onClick={() => go("signin")} className="rounded-full px-3 py-1.5 text-sm">
+                Sign in
+              </button>
+            )}
+          </>
         )}
       </nav>
 
       <main>
         {view === "welcome" && <Welcome signedIn={session.signedIn} />}
         {view === "how" && <HowItWorks />}
+        {view === "start" && <Start />}
+        {view === "save-key" && <SaveKey session={session} />}
         {view === "signin" && (
           <NpubGate
             notice={session.notice || undefined}

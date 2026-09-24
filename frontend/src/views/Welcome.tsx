@@ -63,11 +63,20 @@ export default function Welcome({ signedIn }: { signedIn: boolean }) {
         <div className="mt-8 flex flex-wrap gap-3">
           <button
             type="button"
-            onClick={() => go(signedIn ? "screens" : "signin")}
+            onClick={() => go(signedIn ? "screens" : "start")}
             className="rounded-full bg-[var(--tb-accent)] px-6 py-3 font-medium text-[var(--tb-on-accent)]"
           >
-            {signedIn ? "My screens" : "Sign in"}
+            {signedIn ? "My screens" : "Get started"}
           </button>
+          {!signedIn && (
+            <button
+              type="button"
+              onClick={() => go("signin")}
+              className="rounded-full border border-[var(--tb-line)] px-6 py-3 font-medium"
+            >
+              Sign in
+            </button>
+          )}
           <button
             type="button"
             onClick={() => go("how")}

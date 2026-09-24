@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 
-export type View = "welcome" | "how" | "signin" | "screens" | "profile";
+export type View = "welcome" | "how" | "start" | "save-key" | "signin" | "screens" | "profile";
 
-const VIEWS: View[] = ["welcome", "how", "signin", "screens", "profile"];
+const VIEWS: View[] = ["welcome", "how", "start", "save-key", "signin", "screens", "profile"];
 
 function current(): View {
   const v = globalThis.location.hash.replace(/^#\/?/, "") as View;
