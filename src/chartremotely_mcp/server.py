@@ -57,8 +57,10 @@ mcp = FastMCP(
         "chart_agent_status lists your displays and whether each is live; "
         "chart_forget_display removes one you no longer use. "
         "chart_snapshot_display returns a picture of what a display shows; "
-        "chart_latest_snapshot shows the one it kept after its chart last "
-        "changed (kept encrypted, newest only, for an hour).\n"
+        "chart_latest_snapshot shows one it kept after its chart changed — "
+        "the newest, or a given symbol's. A display keeps the newest picture "
+        "of each of its last 12 symbols, encrypted, each for an hour; "
+        "chart_agent_status lists them.\n"
         "The web app at https://chartremotely.tollbooth-dpyc.com does all of "
         "this from a browser.\n\n"
         "## Pricing\n"
@@ -253,16 +255,19 @@ async def pair_agent(
 
 @tool
 async def agent_status(npub: NPUB_FIELD = "", dpop_token: str = "") -> dict[str, Any]:
-    """List the displays paired to you, and whether each is connected."""
+    """List the displays paired to you, whether each is connected, and the
+    pictures each has kept: one per symbol, newest first. Pass a kept entry's
+    ``symbol`` to chart_latest_snapshot to see it."""
     if err := await runtime.require_caller_proof(npub, dpop_token, "agent_status"):
         return err
     db = await store()
     owned = await db.for_npub(npub)
-    kept = await db.latest_times(npub)
+    kept = await db.kept_symbols(npub)
     return {
         "displays": [
             {"label": a.label, "agent_id": a.agent_id, "connected": a.connected(),
-             "latest_at": _iso(kept[a.agent_id]) if a.agent_id in kept else None}
+             "kept": [{"symbol": key, "name": agents.symbol_name(key), "taken_at": _iso(taken)}
+                      for key, taken in kept.get(a.agent_id, [])]}
             for a in owned
         ],
     }
@@ -321,12 +326,16 @@ def _iso(epoch: float) -> str:
     return datetime.fromtimestamp(epoch, UTC).isoformat(timespec="seconds")
 
 
-def _picture(agent: agents.Agent, jpeg: bytes, taken_at: str) -> ToolResult:
+def _picture(agent: agents.Agent, jpeg: bytes, taken_at: str,
+             symbol: str | None = None) -> ToolResult:
     """One picture of a display, as both an image block and its facts."""
+    facts = {"ok": True, "display": agent.label, "agent_id": agent.agent_id,
+             "taken_at": taken_at}
+    if symbol is not None:
+        facts |= {"symbol": symbol, "name": agents.symbol_name(symbol)}
     return ToolResult(
         content=[Image(data=jpeg, format="jpeg").to_image_content()],
-        structured_content={"ok": True, "display": agent.label,
-                            "agent_id": agent.agent_id, "taken_at": taken_at},
+        structured_content=facts,
     )
 
 
@@ -409,27 +418,33 @@ async def snapshot_display(
 @runtime.paid_tool(LATEST_SNAPSHOT_UUID)
 async def latest_snapshot(
     display: str = "",
+    symbol: str = "",
     npub: NPUB_FIELD = "",
     dpop_token: str = "",
 ) -> ToolResult | dict[str, Any]:
-    """Show the picture a display took after its chart last changed.
+    """Show a picture a display took after its chart changed.
 
-    Each display keeps only its newest picture, encrypted, for an hour. None
-    kept - or one older than that - costs nothing.
+    A display keeps the newest picture of each of its last 12 symbols,
+    encrypted, each for an hour. None kept - or one older than that - costs
+    nothing.
 
     Args:
         display: Which display, when several are paired.
+        symbol: Which symbol's picture, e.g. "PLTR" (any case). Omit for the
+            display's newest picture of any symbol.
     """
     db = await store()
     try:
         agent = await db.resolve(npub, display or None)
     except LookupError as exc:
         raise ValueError(str(exc)) from None
-    kept = await db.latest(agent.agent_id)
+    wanted = agents.symbol_key(symbol) if symbol.strip() else None
+    kept = await db.latest(agent.agent_id, wanted)
     if kept is None:
-        raise ValueError(f"{agent.label} has no picture from the last hour")
-    data_url, taken = kept
-    return _picture(agent, snapshot.parse(data_url), _iso(taken))
+        what = f"no picture of {agents.symbol_name(wanted)}" if wanted else "no picture"
+        raise ValueError(f"{agent.label} has {what} from the last hour")
+    data_url, taken, key = kept
+    return _picture(agent, snapshot.parse(data_url), _iso(taken), key)
 
 
 # ---------------------------------------------------------------------------
@@ -477,7 +492,9 @@ async def agent_snapshot(request: Request) -> JSONResponse:
     """An agent's picture of its chart, taken just after the chart changed.
 
     Checked like any reply from a patron's machine, then kept sealed as that
-    display's latest. Nothing is stored when it cannot be encrypted.
+    display's latest of the symbol it names (``symbol``, optional: without
+    one it is kept as a plain "Chart"). Nothing is stored when it cannot be
+    encrypted.
     """
     body = await request.json()
     db = await store()
@@ -487,10 +504,11 @@ async def agent_snapshot(request: Request) -> JSONResponse:
     image = str(body.get("image", ""))
     try:
         snapshot.parse(image)
+        key = agents.symbol_key(body.get("symbol"))
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
     try:
-        await db.keep_latest(agent.agent_id, image)
+        await db.keep_latest(agent.agent_id, image, key)
     except RuntimeError:
         return JSONResponse({"error": "pictures cannot be stored right now"}, status_code=503)
     return JSONResponse({"kept": True})

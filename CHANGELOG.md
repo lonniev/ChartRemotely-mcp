@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- A display keeps a picture per symbol: the newest of each of its last 12
+  symbols, each for an hour. `POST /agent/snapshot` takes an optional
+  `symbol` (validated; a picture without one is kept as "Chart"), and the AAD
+  now binds display AND symbol.
+- `chart_latest_snapshot` takes `symbol` (any case); omitted, it shows the
+  display's newest picture of any symbol.
+- `chart_agent_status` returns `kept` per display — symbol, name and taken_at,
+  newest first — in place of `latest_at`.
+- Web app: each screen shows its kept symbols as chips under the picture;
+  a tap shows that symbol's.
+
+### Migration
+- `chart_pictures` replaces `chart_latest`, which is dropped on start-up. Its
+  pictures were disposable (sealed, an hour at most), so none are carried over.
+
 ## [0.3.0] - 2026-09-24
 
 ### Added

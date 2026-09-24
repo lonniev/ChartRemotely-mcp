@@ -16,6 +16,7 @@ Two properties hold throughout:
 
 from __future__ import annotations
 
+import re
 import secrets
 import time
 from dataclasses import dataclass, field
@@ -28,6 +29,38 @@ CODE_TTL_SECONDS = 15 * 60
 COMMAND_TIMEOUT_SECONDS = 45
 #: How long a display's latest picture is kept for anyone to look at.
 LATEST_TTL_SECONDS = 60 * 60
+#: How many symbols' pictures a display keeps; the oldest beyond this go.
+LATEST_KEEP = 12
+#: The key a picture is kept under when the agent could not read the symbol.
+#: A lone hyphen is inside the symbol charset but is nobody's ticker, so it
+#: needs no special case in validation, and shows to people as "Chart".
+UNLABELLED = "-"
+UNLABELLED_NAME = "Chart"
+#: What a symbol may look like: tickers, futures (/ES), indices (.SPX,
+#: $SPX.X, ^VIX), share classes (BRK/B, BRK-B). It goes into AAD and back to
+#: a browser, so nothing outside this shape is ever accepted.
+_SYMBOL = re.compile(r"^[A-Z0-9./^$-]{1,15}$")
+
+
+def symbol_key(raw: object) -> str:
+    """A symbol as stored and matched: trimmed and upper-cased.
+
+    Empty or absent means the picture is unlabelled. Raises ValueError for
+    anything that is not symbol-shaped.
+    """
+    if raw is None:
+        return UNLABELLED
+    key = raw.strip().upper() if isinstance(raw, str) else None
+    if key == "":
+        return UNLABELLED
+    if key is None or not _SYMBOL.match(key):
+        raise ValueError("that is not a symbol")
+    return key
+
+
+def symbol_name(key: str) -> str:
+    """How a stored symbol key is shown to people."""
+    return UNLABELLED_NAME if key == UNLABELLED else key
 
 
 def new_pairing_code() -> str:

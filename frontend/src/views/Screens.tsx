@@ -4,7 +4,9 @@
  * No picture is fetched by itself: every one is a paid request, so each waits
  * for a tap. What does refresh is the free status list, so a display whose
  * chart just changed says so — "Changed 10:42 · tap to view" — and a tap shows
- * the picture it kept (the newest only, for an hour).
+ * the picture it kept. A display keeps the newest picture of each of its last
+ * twelve symbols, for an hour each; they sit as chips under the big picture,
+ * newest first, and a tap on one shows that symbol's.
  */
 
 const STATUS_EVERY_MS = 30_000;
@@ -13,6 +15,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Camera, Eye, Loader2, MonitorOff, MonitorPlay, Plus, X } from "lucide-react";
 import { ProofRequiredError } from "@tollbooth-dpyc/web";
 import Carousel from "../components/Carousel";
+import KeptStrip from "../components/KeptStrip";
 import { listDisplays, takeLatest, takeSnapshot, type Display, type Snapshot } from "../lib/chart";
 import { go } from "../lib/route";
 import { clockTime, displayNames, hasNewer, orderDisplays, takenAgo } from "../lib/screens";
@@ -57,10 +60,11 @@ export default function Screens() {
     return () => clearInterval(t);
   }, []);
 
-  async function shoot(agentId: string, kept = false) {
+  /** A live picture, or — given a symbol ("" for the newest) — one the display kept. */
+  async function shoot(agentId: string, kept?: string) {
     setShots((s) => ({ ...s, [agentId]: { ...s[agentId], busy: true, error: undefined } }));
     try {
-      const snap = await (kept ? takeLatest(agentId) : takeSnapshot(agentId));
+      const snap = await (kept === undefined ? takeSnapshot(agentId) : takeLatest(agentId, kept));
       setShots((s) => ({ ...s, [agentId]: { snap } }));
     } catch (e) {
       if (e instanceof ProofRequiredError) return;
@@ -111,6 +115,8 @@ export default function Screens() {
         {displays.map((d) => {
           const name = names.get(d.agent_id) ?? d.label;
           const shot = shots[d.agent_id] ?? {};
+          const kept = d.kept ?? [];
+          const newest = kept[0];
           return (
             <figure
               key={d.agent_id}
@@ -132,13 +138,13 @@ export default function Screens() {
                     <span className="text-sm">{d.connected ? "Tap the camera to look" : "Offline"}</span>
                   </div>
                 )}
-                {!shot.busy && d.latest_at && hasNewer(d.latest_at, shot.snap?.takenAt) && (
+                {!shot.busy && newest && hasNewer(newest.taken_at, shot.snap?.takenAt) && (
                   <button
                     type="button"
-                    onClick={() => void shoot(d.agent_id, true)}
+                    onClick={() => void shoot(d.agent_id, newest.symbol)}
                     className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-[var(--tb-accent)] px-3 py-1.5 text-xs font-medium text-[var(--tb-on-accent)] shadow"
                   >
-                    <Eye size={14} /> Changed {clockTime(d.latest_at)} · tap to view
+                    <Eye size={14} /> {newest.name} {clockTime(newest.taken_at)} · tap to view
                   </button>
                 )}
                 {shot.busy && (
@@ -147,6 +153,13 @@ export default function Screens() {
                   </div>
                 )}
               </div>
+
+              <KeptStrip
+                kept={kept}
+                showing={shot.snap?.symbol}
+                disabled={shot.busy}
+                onPick={(symbol) => void shoot(d.agent_id, symbol)}
+              />
 
               <figcaption className="flex items-center gap-3 px-5 py-4">
                 <span
@@ -159,7 +172,7 @@ export default function Screens() {
                     {shot.error ? (
                       <span className="text-[var(--tb-err-ink)]">{shot.error}</span>
                     ) : shot.snap ? (
-                      takenAgo(shot.snap.takenAt)
+                      [shot.snap.name, takenAgo(shot.snap.takenAt)].filter(Boolean).join(" · ")
                     ) : d.connected ? (
                       "Connected"
                     ) : (
@@ -193,7 +206,7 @@ export default function Screens() {
         >
           <div className="flex items-center justify-between px-4 py-3 text-sm">
             <span>
-              {zoomed.name} · {takenAgo(zoomed.snap.takenAt)}
+              {[zoomed.name, zoomed.snap.name, takenAgo(zoomed.snap.takenAt)].filter(Boolean).join(" · ")}
             </span>
             <button type="button" autoFocus onClick={() => setZoomed(null)} aria-label="Close" className="rounded-full p-2">
               <X size={22} />

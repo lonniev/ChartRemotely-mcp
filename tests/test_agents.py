@@ -224,7 +224,7 @@ async def test_forget_clears_every_trace_including_the_vault_secret(monkeypatch)
     assert (await s.forget("npub1x", "Desk")).agent_id == "a1"
     deletes = [q for q in s._neon.sql if q.startswith("DELETE")]
     assert {q.split()[2] for q in deletes} == {
-        "op.chart_commands", "op.chart_pairings", "op.chart_latest", "op.chart_agents"}
+        "op.chart_commands", "op.chart_pairings", "op.chart_pictures", "op.chart_agents"}
     # The agents row is deleted only when it belongs to the caller.
     assert "npub = $2" in next(q for q in deletes if "chart_agents" in q)
     assert runtime.creds == {}
@@ -274,43 +274,128 @@ async def test_a_kept_picture_is_stored_sealed_never_in_the_clear():
     neon = Recording()
     neon._cipher = VaultCipher(nsec_hex="11" * 32)
     s = AgentStore(neon_vault=neon, runtime=FakeRuntime())
-    await s.keep_latest("a1", PICTURE)
-    agent_id, stored = neon.params[-1]
-    assert agent_id == "a1"
+    await s.keep_latest("a1", PICTURE, "PLTR")
+    agent_id, symbol, stored = neon.params[0]
+    assert (agent_id, symbol) == ("a1", "PLTR")
     assert "data:image" not in stored and "/9j/" not in stored
-    assert neon._cipher.decrypt(stored, aad="a1|latest") == PICTURE
+    assert neon._cipher.decrypt(stored, aad="a1|latest|PLTR") == PICTURE
 
 
 async def test_without_a_cipher_nothing_is_stored():
     s = store()
     with pytest.raises(RuntimeError):
-        await s.keep_latest("a1", PICTURE)
+        await s.keep_latest("a1", PICTURE, "PLTR")
     assert s._neon.sql == []
+
+
+async def test_each_symbol_is_kept_under_its_own_key_upper_cased():
+    neon = Recording()
+    neon._cipher = VaultCipher(nsec_hex="11" * 32)
+    s = AgentStore(neon_vault=neon, runtime=FakeRuntime())
+    await s.keep_latest("a1", PICTURE, " pltr ")
+    assert "ON CONFLICT (agent_id, symbol)" in neon.sql[0]
+    assert neon.params[0][1] == "PLTR"
+
+
+async def test_a_picture_without_a_symbol_is_kept_as_chart_not_dropped():
+    neon = Recording()
+    neon._cipher = VaultCipher(nsec_hex="11" * 32)
+    s = AgentStore(neon_vault=neon, runtime=FakeRuntime())
+    await s.keep_latest("a1", PICTURE)
+    assert neon.params[0][1] == agents.UNLABELLED
+    assert agents.symbol_name(agents.UNLABELLED) == "Chart"
+
+
+async def test_only_the_twelve_most_recent_symbols_survive_a_keep():
+    neon = Recording()
+    neon._cipher = VaultCipher(nsec_hex="11" * 32)
+    s = AgentStore(neon_vault=neon, runtime=FakeRuntime())
+    await s.keep_latest("a1", PICTURE, "PLTR")
+    cap = neon.sql[1]
+    assert cap.startswith("DELETE FROM op.chart_pictures WHERE agent_id = $1")
+    assert "ORDER BY taken_at DESC LIMIT 12" in cap
+    assert neon.params[1] == ["a1"], "the cap only ever trims this display's rows"
+    assert agents.LATEST_KEEP == 12
+
+
+@pytest.mark.parametrize("bad", ["TOO-LONG-A-SYMBOL", "PL TR", "<script>", "PLTR;--", "ÆBC", 7])
+async def test_a_symbol_that_is_not_symbol_shaped_is_refused_before_anything_is_stored(bad):
+    s, neon = sealed_store()
+    with pytest.raises(ValueError):
+        await s.keep_latest("a1", PICTURE, bad)
+    assert neon.sql == []
+
+
+@pytest.mark.parametrize("good", ["/ES", ".SPX", "$SPX.X", "^VIX", "BRK/B", "BRK-B", "a"])
+def test_futures_indices_and_share_classes_are_symbols(good):
+    assert agents.symbol_key(good) == good.upper()
 
 
 async def test_a_picture_sealed_for_one_display_will_not_open_as_another():
     s, neon = sealed_store()
-    sealed = neon._cipher.encrypt(PICTURE, aad="a1|latest")
-    neon.responses = [{"rows": []}, {"rows": [{"image": sealed, "taken": time.time()}]}]
+    sealed = neon._cipher.encrypt(PICTURE, aad="a1|latest|PLTR")
+    neon.responses = [{"rows": []},
+                      {"rows": [{"symbol": "PLTR", "image": sealed, "taken": time.time()}]}]
     with pytest.raises(InvalidTag):
-        await s.latest("b2")
+        await s.latest("b2", "PLTR")
 
 
-async def test_the_latest_picture_opens_for_its_own_display():
+async def test_a_picture_relabelled_as_another_symbol_will_not_open():
     s, neon = sealed_store()
-    sealed = neon._cipher.encrypt(PICTURE, aad="a1|latest")
-    neon.responses = [{"rows": []}, {"rows": [{"image": sealed, "taken": 1700000000.0}]}]
-    assert await s.latest("a1") == (PICTURE, 1700000000.0)
+    sealed = neon._cipher.encrypt(PICTURE, aad="a1|latest|PLTR")
+    neon.responses = [{"rows": []},
+                      {"rows": [{"symbol": "NVDA", "image": sealed, "taken": time.time()}]}]
+    with pytest.raises(InvalidTag):
+        await s.latest("a1", "NVDA")
+
+
+async def test_a_symbols_picture_opens_asked_for_in_any_case():
+    s, neon = sealed_store()
+    sealed = neon._cipher.encrypt(PICTURE, aad="a1|latest|PLTR")
+    neon = Recording({"rows": []},
+                     {"rows": [{"symbol": "PLTR", "image": sealed, "taken": 1700000000.0}]})
+    neon._cipher = VaultCipher(nsec_hex="11" * 32)
+    s = AgentStore(neon_vault=neon, runtime=FakeRuntime())
+    assert await s.latest("a1", "pltr") == (PICTURE, 1700000000.0, "PLTR")
+    assert neon.params[1] == ["a1", "PLTR"]
     # Pictures past their hour are swept before anything is read.
-    assert neon.sql[0].startswith("DELETE FROM op.chart_latest WHERE taken_at <=")
+    assert neon.sql[0].startswith("DELETE FROM op.chart_pictures WHERE taken_at <=")
+
+
+async def test_no_symbol_means_the_displays_newest_picture():
+    s, neon = sealed_store()
+    sealed = neon._cipher.encrypt(PICTURE, aad="a1|latest|NVDA")
+    neon.responses = [{"rows": []},
+                      {"rows": [{"symbol": "NVDA", "image": sealed, "taken": 1700000000.0}]}]
+    assert await s.latest("a1") == (PICTURE, 1700000000.0, "NVDA")
+    assert "ORDER BY taken_at DESC LIMIT 1" in neon.sql[1]
 
 
 async def test_nothing_kept_reads_as_none():
     s, _ = sealed_store()
     assert await s.latest("a1") is None
+    assert await s.latest("a1", "PLTR") is None
 
 
-async def test_latest_times_only_ever_cover_the_callers_displays():
-    s, neon = sealed_store({"rows": [{"agent_id": "a1", "taken": 1700000000.0}]})
-    assert await s.latest_times("npub1x") == {"a1": 1700000000.0}
-    assert "a.npub = $1" in neon.sql[0] and "taken_at > now()" in neon.sql[0]
+async def test_kept_symbols_are_the_callers_own_newest_first_and_unexpired():
+    s, neon = sealed_store({"rows": [
+        {"agent_id": "a1", "symbol": "NVDA", "taken": 1700000100.0},
+        {"agent_id": "a1", "symbol": "PLTR", "taken": 1700000000.0},
+        {"agent_id": "b2", "symbol": "-", "taken": 1700000050.0},
+    ]})
+    assert await s.kept_symbols("npub1x") == {
+        "a1": [("NVDA", 1700000100.0), ("PLTR", 1700000000.0)],
+        "b2": [("-", 1700000050.0)],
+    }
+    q = neon.sql[0]
+    assert "a.npub = $1" in q and "taken_at > now()" in q and "ORDER BY l.taken_at DESC" in q
+
+
+async def test_the_migration_replaces_the_one_picture_table_and_is_idempotent():
+    s = store()
+    await s.ensure_schema()
+    await s.ensure_schema()
+    ddl = s._neon.sql
+    assert ddl.count("DROP TABLE IF EXISTS op.chart_latest") == 2
+    creates = [q for q in ddl if "CREATE TABLE IF NOT EXISTS op.chart_pictures" in q]
+    assert len(creates) == 2 and "PRIMARY KEY (agent_id, symbol)" in creates[0]
