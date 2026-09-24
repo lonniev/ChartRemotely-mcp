@@ -6,7 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `POST /agent/forward`: a paired display hands a command to another display
+  of the SAME owner, by name, and gets its reply back to speak — so "Hey Siri,
+  ChartRemotely … Where? Mac mini" reaches the Mac mini from whichever Mac
+  heard it. The caller authenticates like `/agent/snapshot`; the target is
+  looked up only among the caller's owner's displays, by agent_id or by name
+  ignoring case, spaces, hyphens, underscores and dots. No fuzzy matching.
+  404 lists the owner's display names, 409 lists twins, 503 when the target is
+  offline, 504 when it does not answer in 25 s; `{"self": true}` when the name
+  is the caller's own. Command and name are capped (200 / 64 printable
+  characters). Unmetered.
+
 ### Changed
+- Display names match the same way everywhere a tool takes `display`: case,
+  spaces, hyphens, underscores and dots do not count. Several displays under
+  one name are refused with their ids unless exactly one is live (before, the
+  oldest was picked and the command timed out on it).
 - A display keeps a picture per symbol: the newest of each of its last 12
   symbols, each for an hour. `POST /agent/snapshot` takes an optional
   `symbol` (validated; a picture without one is kept as "Chart"), and the AAD

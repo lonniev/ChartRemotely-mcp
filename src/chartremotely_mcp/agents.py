@@ -27,6 +27,9 @@ _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 CODE_LENGTH = 6
 CODE_TTL_SECONDS = 15 * 60
 COMMAND_TIMEOUT_SECONDS = 45
+#: How long a command forwarded from one display to another may take. Shorter
+#: than a relayed tool call's, because a Siri Shortcut is waiting on it.
+FORWARD_TIMEOUT_SECONDS = 25
 #: How long a display's latest picture is kept for anyone to look at.
 LATEST_TTL_SECONDS = 60 * 60
 #: How many symbols' pictures a display keeps; the oldest beyond this go.
@@ -56,6 +59,17 @@ def symbol_key(raw: object) -> str:
     if key is None or not _SYMBOL.match(key):
         raise ValueError("that is not a symbol")
     return key
+
+
+#: What a display name is compared by: case, spaces, hyphens, underscores and
+#: dots do not count, so dictation's "Mac mini", "mac-mini" and "macmini" are
+#: one name. Nothing else is forgiven - no fuzzy matching, no guessing.
+_NAME_NOISE = re.compile(r"[\s\-_.]+")
+
+
+def display_key(name: str) -> str:
+    """A display name as it is matched: lower-cased, without spaces, hyphens, underscores or dots."""
+    return _NAME_NOISE.sub("", name).lower()
 
 
 def symbol_name(key: str) -> str:

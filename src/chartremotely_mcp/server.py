@@ -31,7 +31,7 @@ from tollbooth.tool_identity import STANDARD_IDENTITIES, ToolIdentity
 
 from chartremotely_mcp import __version__, agents, snapshot
 from chartremotely_mcp.config import get_settings
-from chartremotely_mcp.store import AgentStore
+from chartremotely_mcp.store import AgentStore, AmbiguousDisplay, NoSuchDisplay
 
 logger = logging.getLogger(__name__)
 
@@ -512,6 +512,73 @@ async def agent_snapshot(request: Request) -> JSONResponse:
     except RuntimeError:
         return JSONResponse({"error": "pictures cannot be stored right now"}, status_code=503)
     return JSONResponse({"kept": True})
+
+
+#: Longest command or display name /agent/forward carries. A spoken command
+#: is a few words; anything longer is not one.
+FORWARD_CMD_MAX = 200
+FORWARD_DISPLAY_MAX = 64
+
+
+def _spoken(value: object, limit: int) -> str | None:
+    """``value`` trimmed, when it is printable text of 1..limit characters; else None."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text if 0 < len(text) <= limit and text.isprintable() else None
+
+
+@mcp.custom_route("/agent/forward", methods=["POST"])
+async def agent_forward(request: Request) -> JSONResponse:
+    """One display hands a command to another of the SAME owner's displays.
+
+    The Mac that heard "Hey Siri" names the display it was told, verbatim;
+    the lookup is by name or agent_id only (see ``display_key``), among the
+    caller's owner's displays and nobody else's. The command is relayed
+    opaque, like any other, and the target's reply comes back to be spoken.
+
+    Unmetered: the caller is an authenticated agent, not a patron's tool call.
+    """
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse({"error": "bad JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "bad JSON"}, status_code=400)
+    db = await store()
+    caller = await db.authenticate(str(body.get("agent_id", "")), str(body.get("secret", "")))
+    if caller is None:
+        return JSONResponse({"error": "unknown agent"}, status_code=403)
+    display = _spoken(body.get("display"), FORWARD_DISPLAY_MAX)
+    command = _spoken(body.get("cmd"), FORWARD_CMD_MAX)
+    if display is None or command is None:
+        return JSONResponse({"error": "a display name and a command are required, "
+                                      f"at most {FORWARD_DISPLAY_MAX} and {FORWARD_CMD_MAX} "
+                                      "printable characters"}, status_code=400)
+    try:
+        target = await db.resolve(caller.npub, display)
+    except NoSuchDisplay as exc:
+        return JSONResponse({"error": f"no display named {display!r}", "displays": exc.names},
+                            status_code=404)
+    except AmbiguousDisplay as exc:
+        return JSONResponse({"error": str(exc),
+                             "candidates": [{"label": a.label, "agent_id": a.agent_id}
+                                            for a in exc.candidates]}, status_code=409)
+    except LookupError:
+        return JSONResponse({"error": f"no display named {display!r}", "displays": []},
+                            status_code=404)
+    if target.agent_id == caller.agent_id:
+        # The caller was told its own name: it runs the command itself.
+        return JSONResponse({"self": True, "display": target.label})
+    if not target.connected():
+        return JSONResponse({"error": f"{target.label} is offline", "display": target.label},
+                            status_code=503)
+    try:
+        reply = await db.send(target.agent_id, command, timeout=agents.FORWARD_TIMEOUT_SECONDS)
+    except TimeoutError:
+        return JSONResponse({"error": f"{target.label} did not answer", "display": target.label},
+                            status_code=504)
+    return JSONResponse({"display": target.label, "reply": reply})
 
 
 @mcp.custom_route("/agent/result", methods=["POST"])

@@ -334,3 +334,108 @@ async def test_no_kept_picture_costs_nothing(monkeypatch, billing):
     result = await call("latest_snapshot", dpop_token="good")
     assert billing["rollback"] == 1
     assert "no picture from the last hour" in str(result.structured_content)
+
+
+# -- one display hands a command to another ------------------------------------
+
+OTHER = "npub1stranger"
+
+
+class ForwardingStore(FakeStore):
+    """Two owners' displays; records which display each command was sent to."""
+
+    def __init__(self, reply="Showing PLTR at daily. Good luck.", displays=None):
+        now = time.time()
+        super().__init__(reply, displays if displays is not None else [
+            Agent(agent_id="a1", npub=NPUB, label="desk", secret="", last_seen=now),
+            Agent(agent_id="a2", npub=NPUB, label="Mac Mini", secret="", last_seen=now),
+            Agent(agent_id="a3", npub=NPUB, label="attic", secret="", last_seen=0),
+            Agent(agent_id="x1", npub=OTHER, label="office", secret="", last_seen=now),
+        ])
+        self.to: list[tuple[str, str]] = []
+
+    async def send(self, agent_id, command, timeout=0):
+        self.to.append((agent_id, command))
+        return await super().send(agent_id, command, timeout)
+
+
+def forward(fake, monkeypatch, **body):
+    use(monkeypatch, fake)
+    with TestClient(server.mcp.http_app()) as client:
+        return client.post("/agent/forward", json={"agent_id": "a1", "secret": "s1", **body})
+
+
+def test_a_stranger_cannot_forward(monkeypatch):
+    fake = ForwardingStore()
+    r = forward(fake, monkeypatch, secret="guess", display="Mac Mini", cmd="set PLTR | daily")
+    assert r.status_code == 403 and fake.to == []
+
+
+@pytest.mark.parametrize("said", ["Mac Mini", "mac-mini", "macmini", "MAC MINI", "mac_mini", "a2"])
+def test_the_named_display_gets_the_command_verbatim_and_its_reply_comes_back(monkeypatch, said):
+    fake = ForwardingStore()
+    r = forward(fake, monkeypatch, display=said, cmd="set PLTR | daily")
+    assert r.status_code == 200
+    assert r.json() == {"display": "Mac Mini", "reply": "Showing PLTR at daily. Good luck."}
+    assert fake.to == [("a2", "set PLTR | daily")]
+
+
+def test_another_owners_display_is_not_reachable_even_by_id(monkeypatch):
+    fake = ForwardingStore()
+    for said in ("office", "x1"):
+        r = forward(fake, monkeypatch, display=said, cmd="read")
+        assert r.status_code == 404
+        assert r.json()["displays"] == ["desk", "Mac Mini", "attic"]
+    assert fake.to == []
+
+
+def test_an_unknown_name_lists_the_owners_displays(monkeypatch):
+    r = forward(ForwardingStore(), monkeypatch, display="kitchen", cmd="read")
+    assert r.status_code == 404
+    assert r.json() == {"error": "no display named 'kitchen'",
+                        "displays": ["desk", "Mac Mini", "attic"]}
+
+
+def test_an_offline_display_is_reported_not_queued(monkeypatch):
+    fake = ForwardingStore()
+    r = forward(fake, monkeypatch, display="Attic", cmd="read")
+    assert r.status_code == 503 and "attic is offline" in r.json()["error"]
+    assert fake.to == []
+
+
+def test_the_callers_own_name_sends_it_back_to_run_itself(monkeypatch):
+    fake = ForwardingStore()
+    r = forward(fake, monkeypatch, display="DESK", cmd="read")
+    assert r.status_code == 200 and r.json() == {"self": True, "display": "desk"}
+    assert fake.to == []
+
+
+def test_twins_are_refused_with_the_candidates(monkeypatch):
+    fake = ForwardingStore(displays=[
+        Agent(agent_id="a1", npub=NPUB, label="desk", secret="", last_seen=time.time()),
+        Agent(agent_id="t1", npub=NPUB, label="wall", secret=""),
+        Agent(agent_id="t2", npub=NPUB, label="Wall", secret="")])
+    r = forward(fake, monkeypatch, display="wall", cmd="read")
+    assert r.status_code == 409
+    assert [c["agent_id"] for c in r.json()["candidates"]] == ["t1", "t2"]
+
+
+def test_a_display_that_never_answers_is_a_timeout(monkeypatch):
+    fake = ForwardingStore(reply=TimeoutError())
+    r = forward(fake, monkeypatch, display="Mac Mini", cmd="read")
+    assert r.status_code == 504
+
+
+@pytest.mark.parametrize("body", [
+    {"display": "Mac Mini", "cmd": "x" * 201},
+    {"display": "Mac Mini", "cmd": "set PLTR\n| daily"},
+    {"display": "Mac Mini", "cmd": ""},
+    {"display": "Mac Mini", "cmd": ["read"]},
+    {"display": "m" * 65, "cmd": "read"},
+    {"display": "", "cmd": "read"},
+    {"cmd": "read"},
+])
+def test_a_malformed_forward_is_refused_before_anything_is_sent(monkeypatch, body):
+    fake = ForwardingStore()
+    r = forward(fake, monkeypatch, **body)
+    assert r.status_code == 400 and fake.to == []

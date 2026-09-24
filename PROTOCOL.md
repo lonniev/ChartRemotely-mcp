@@ -67,6 +67,22 @@ gets an id and a patron-supplied label, so `show_chart(symbol, display:
 "east wall")` addresses one of them. A patron with a single agent may omit
 it.
 
+## Forwarding between displays
+
+A voice command is heard by one Mac, but may be meant for another display of
+the same owner. The hearing agent posts to `/agent/forward`:
+
+```
+{agent_id, secret, display: "<name as dictated>", cmd: "set PLTR | daily"}
+```
+
+The operator authenticates the caller, finds `display` among the caller's
+owner's displays only — by agent_id, or by name ignoring case, spaces,
+hyphens, underscores and dots — relays `cmd` opaque, and returns
+`{display, reply}`. `{self: true}` means the name is the caller's own and it
+runs the command itself. 404 carries the owner's names (`displays`), 409 the
+twins (`candidates`), 503 an offline target, 504 no answer. Unmetered.
+
 ## Failure modes worth naming
 
 | | |
