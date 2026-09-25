@@ -12,8 +12,14 @@ const setupShortcutVersion = createHash("sha256")
   .digest("hex")
   .slice(0, 10);
 
+// The front end's own version, shown under Build & license on Profile.
+const appVersion = (JSON.parse(readFileSync("package.json", "utf8")) as { version: string }).version;
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  define: { __SETUP_SHORTCUT_VERSION__: JSON.stringify(setupShortcutVersion) },
+  define: {
+    __SETUP_SHORTCUT_VERSION__: JSON.stringify(setupShortcutVersion),
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   build: { outDir: "dist" },
 });

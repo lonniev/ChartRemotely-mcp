@@ -20,10 +20,20 @@ test("two displays with one name are told apart; a unique name is left alone", (
 
 test("snapshot ages read like a person would say them", () => {
   const now = Date.parse("2026-09-23T12:00:00Z");
-  assert.equal(takenAgo("2026-09-23T11:59:40Z", now), "just now");
-  assert.equal(takenAgo("2026-09-23T11:56:00Z", now), "4 min ago");
-  assert.equal(takenAgo("2026-09-23T10:00:00Z", now), "2 h ago");
-  assert.equal(takenAgo("not a date", now), "");
+  assert.equal(takenAgo("2026-09-23T11:59:40Z", "UTC", now), "just now");
+  assert.equal(takenAgo("2026-09-23T11:56:00Z", "UTC", now), "4 min ago");
+  assert.equal(takenAgo("2026-09-23T10:00:00Z", "UTC", now), "2 h ago");
+  assert.equal(takenAgo("not a date", "UTC", now), "");
+});
+
+test("a picture older than a day reads in the viewer's chosen zone", () => {
+  const now = Date.parse("2026-09-23T12:00:00Z");
+  // 02:30 UTC on the 21st is still the 20th in Los Angeles.
+  const la = takenAgo("2026-09-21T02:30:00Z", "America/Los_Angeles", now);
+  const tokyo = takenAgo("2026-09-21T02:30:00Z", "Asia/Tokyo", now);
+  assert.match(la, /20/);
+  assert.match(tokyo, /21/);
+  assert.notEqual(la, tokyo);
 });
 
 test("a pairing code is cleaned to the agent's alphabet", () => {

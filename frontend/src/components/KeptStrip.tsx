@@ -3,8 +3,10 @@
  * for that symbol's picture; the one on screen is marked.
  */
 
+import { formatTime } from "@tollbooth-dpyc/web";
+import { useTimezone } from "@tollbooth-dpyc/web/react";
 import type { KeptPicture } from "../lib/chart";
-import { clockTime } from "../lib/screens";
+import { CLOCK } from "../lib/screens";
 
 interface Props {
   kept: KeptPicture[];
@@ -15,6 +17,7 @@ interface Props {
 }
 
 export default function KeptStrip({ kept, showing, disabled, onPick }: Props) {
+  const [, zone] = useTimezone();
   if (!kept.length) return null;
   return (
     <div className="flex flex-wrap gap-2 border-t border-[var(--tb-line)] px-5 pt-3">
@@ -27,7 +30,7 @@ export default function KeptStrip({ kept, showing, disabled, onPick }: Props) {
             disabled={disabled}
             aria-pressed={on}
             onClick={() => onPick(k.symbol)}
-            title={`${k.name} at ${clockTime(k.taken_at)}`}
+            title={`${k.name} at ${formatTime(k.taken_at, zone, CLOCK)}`}
             className={`inline-flex items-baseline gap-1.5 rounded-full border px-3 py-1.5 text-sm disabled:opacity-40 ${
               on
                 ? "border-[var(--tb-accent)] bg-[var(--tb-accent)] text-[var(--tb-on-accent)]"
@@ -35,7 +38,7 @@ export default function KeptStrip({ kept, showing, disabled, onPick }: Props) {
             }`}
           >
             <span className="font-medium">{k.name}</span>
-            <span className={`text-xs ${on ? "" : "text-[var(--tb-muted)]"}`}>{clockTime(k.taken_at)}</span>
+            <span className={`text-xs ${on ? "" : "text-[var(--tb-muted)]"}`}>{formatTime(k.taken_at, zone, CLOCK)}</span>
           </button>
         );
       })}
