@@ -20,6 +20,9 @@
   --tb-err-bg: #2c1515;
   --tb-err-line: #5e2525;
   --tb-err-ink: #f4a3a3;
+  --tb-notice-bg: #241532;
+  --tb-notice-line: #4d2d6e;
+  --tb-notice-ink: #d8b4fe;
 }
 
 html,
