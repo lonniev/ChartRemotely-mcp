@@ -61,6 +61,24 @@ def symbol_key(raw: object) -> str:
     return key
 
 
+#: What a scale may look like: the words an agent's reply states ("half",
+#: "30 minutes", "1 day"). Metadata in the clear, shown back to callers, so
+#: anything outside this shape is dropped rather than kept.
+_SCALE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .:/-]{0,23}$")
+
+
+def scale_label(raw: object) -> str | None:
+    """A scale as kept: inner whitespace collapsed, at most 24 characters.
+
+    None when absent or not scale-shaped - a scale is only a label, so a bad
+    one is dropped, never an error that costs the picture.
+    """
+    if not isinstance(raw, str):
+        return None
+    label = " ".join(raw.split())
+    return label if _SCALE.match(label) else None
+
+
 def symbol_name(key: str) -> str:
     """How a stored symbol key is shown to people."""
     return UNLABELLED_NAME if key == UNLABELLED else key

@@ -194,6 +194,15 @@ async def test_schema_adds_collected_at_to_an_existing_table():
     assert any("ADD COLUMN IF NOT EXISTS collected_at" in sql for sql in neon.sql)
 
 
+async def test_schema_adds_scale_to_kept_pictures_idempotently():
+    neon = FakeNeon()
+    s = AgentStore(neon_vault=neon, runtime=FakeRuntime())
+    await s.ensure_schema()
+    await s.ensure_schema()
+    adds = [q for q in neon.sql if "ADD COLUMN IF NOT EXISTS scale TEXT" in q]
+    assert len(adds) == 2 and all("chart_pictures" in q for q in adds)
+
+
 async def test_a_shared_name_goes_to_the_live_display(monkeypatch):
     """Re-pairing leaves the old row behind under the same name; a command
     must reach the machine that is actually listening."""
@@ -274,9 +283,9 @@ async def test_a_kept_picture_is_stored_sealed_never_in_the_clear():
     neon = Recording()
     neon._cipher = VaultCipher(nsec_hex="11" * 32)
     s = AgentStore(neon_vault=neon, runtime=FakeRuntime())
-    await s.keep_latest("a1", PICTURE, "PLTR")
-    agent_id, symbol, stored = neon.params[0]
-    assert (agent_id, symbol) == ("a1", "PLTR")
+    await s.keep_latest("a1", PICTURE, "PLTR", "half")
+    agent_id, symbol, stored, scale = neon.params[0]
+    assert (agent_id, symbol, scale) == ("a1", "PLTR", "half")
     assert "data:image" not in stored and "/9j/" not in stored
     assert neon._cipher.decrypt(stored, aad="a1|latest|PLTR") == PICTURE
 
@@ -356,7 +365,7 @@ async def test_a_symbols_picture_opens_asked_for_in_any_case():
                      {"rows": [{"symbol": "PLTR", "image": sealed, "taken": 1700000000.0}]})
     neon._cipher = VaultCipher(nsec_hex="11" * 32)
     s = AgentStore(neon_vault=neon, runtime=FakeRuntime())
-    assert await s.latest("a1", "pltr") == (PICTURE, 1700000000.0, "PLTR")
+    assert await s.latest("a1", "pltr") == (PICTURE, 1700000000.0, "PLTR", None)
     assert neon.params[1] == ["a1", "PLTR"]
     # Pictures past their hour are swept before anything is read.
     assert neon.sql[0].startswith("DELETE FROM op.chart_pictures WHERE taken_at <=")
@@ -367,8 +376,27 @@ async def test_no_symbol_means_the_displays_newest_picture():
     sealed = neon._cipher.encrypt(PICTURE, aad="a1|latest|NVDA")
     neon.responses = [{"rows": []},
                       {"rows": [{"symbol": "NVDA", "image": sealed, "taken": 1700000000.0}]}]
-    assert await s.latest("a1") == (PICTURE, 1700000000.0, "NVDA")
+    assert await s.latest("a1") == (PICTURE, 1700000000.0, "NVDA", None)
     assert "ORDER BY taken_at DESC LIMIT 1" in neon.sql[1]
+
+
+async def test_a_kept_scale_comes_back_with_its_picture():
+    s, neon = sealed_store()
+    sealed = neon._cipher.encrypt(PICTURE, aad="a1|latest|PLTR")
+    neon.responses = [{"rows": []}, {"rows": [
+        {"symbol": "PLTR", "image": sealed, "scale": "30 minutes", "taken": 1700000000.0}]}]
+    kept = await s.latest("a1", "PLTR")
+    assert kept.scale == "30 minutes"
+    assert "scale" in neon.sql[1]
+
+
+async def test_a_bad_scale_is_stored_as_none_not_refused():
+    neon = Recording()
+    neon._cipher = VaultCipher(nsec_hex="11" * 32)
+    s = AgentStore(neon_vault=neon, runtime=FakeRuntime())
+    await s.keep_latest("a1", PICTURE, "PLTR", "<script>alert(1)</script>")
+    assert neon.params[0][3] is None
+    assert "scale = EXCLUDED.scale" in neon.sql[0], "a new picture never keeps an old scale"
 
 
 async def test_nothing_kept_reads_as_none():
