@@ -2,6 +2,8 @@
  * Pure rules for the Screens carousel, testable under node:test.
  */
 
+import { formatDateTime } from "@tollbooth-dpyc/web";
+
 export interface DisplayLike {
   label: string;
   agent_id: string;
@@ -30,8 +32,11 @@ export function displayNames<T extends DisplayLike>(displays: T[]): Map<string, 
   );
 }
 
-/** "just now", "4 min ago", "2 h ago", or the time for anything older than a day. */
-export function takenAgo(iso: string, now = Date.now()): string {
+/**
+ * "just now", "4 min ago", "2 h ago", or — for anything older than a day — the
+ * date and time in the viewer's chosen zone.
+ */
+export function takenAgo(iso: string, timeZone: string, now = Date.now()): string {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "";
   const s = Math.max(0, Math.round((now - t) / 1000));
@@ -40,7 +45,7 @@ export function takenAgo(iso: string, now = Date.now()): string {
   if (m < 60) return `${m} min ago`;
   const h = Math.round(m / 60);
   if (h < 24) return `${h} h ago`;
-  return new Date(t).toLocaleString();
+  return formatDateTime(iso, timeZone);
 }
 
 /** A pairing code as typed: upper case, no spaces, the agent's alphabet only. */
@@ -64,8 +69,5 @@ export function hasNewer(latestAt: string | null | undefined, shownAt: string | 
   return !shownAt || kept > Date.parse(shownAt);
 }
 
-/** "10:42" in the viewer's own clock. */
-export function clockTime(iso: string): string {
-  const t = Date.parse(iso);
-  return Number.isNaN(t) ? "" : new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
+/** How a picture's time reads on a chip or a cue: "10:42 AM" in the chosen zone. */
+export const CLOCK: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };

@@ -13,13 +13,13 @@ const STATUS_EVERY_MS = 30_000;
 
 import { useCallback, useEffect, useState } from "react";
 import { Camera, Eye, MonitorOff, MonitorPlay, Plus, X } from "lucide-react";
-import { ProofRequiredError } from "@tollbooth-dpyc/web";
-import { QuoteScroller } from "@tollbooth-dpyc/web/react";
+import { ProofRequiredError, formatTime } from "@tollbooth-dpyc/web";
+import { QuoteScroller, useTimezone } from "@tollbooth-dpyc/web/react";
 import Carousel from "../components/Carousel";
 import KeptStrip from "../components/KeptStrip";
 import { listDisplays, takeLatest, takeSnapshot, type Display, type Snapshot } from "../lib/chart";
 import { go } from "../lib/route";
-import { clockTime, displayNames, hasNewer, orderDisplays, takenAgo } from "../lib/screens";
+import { CLOCK, displayNames, hasNewer, orderDisplays, takenAgo } from "../lib/screens";
 import { pictureQuoteStyles, quoteStyles } from "../lib/quoteStyles";
 import { TRADING_QUOTES } from "../lib/tradingQuotes";
 
@@ -35,6 +35,7 @@ export default function Screens() {
   const [shots, setShots] = useState<Record<string, Shot>>({});
   const [zoomed, setZoomed] = useState<{ name: string; snap: Snapshot } | null>(null);
   const [, tick] = useState(0);
+  const [, zone] = useTimezone();
 
   const load = useCallback(() => {
     setError("");
@@ -147,7 +148,7 @@ export default function Screens() {
                     onClick={() => void shoot(d.agent_id, newest.symbol)}
                     className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-[var(--tb-accent)] px-3 py-1.5 text-xs font-medium text-[var(--tb-on-accent)] shadow"
                   >
-                    <Eye size={14} /> {newest.name} {clockTime(newest.taken_at)} · tap to view
+                    <Eye size={14} /> {newest.name} {formatTime(newest.taken_at, zone, CLOCK)} · tap to view
                   </button>
                 )}
                 {shot.busy && (
@@ -181,7 +182,7 @@ export default function Screens() {
                     {shot.error ? (
                       <span className="text-[var(--tb-err-ink)]">{shot.error}</span>
                     ) : shot.snap ? (
-                      [shot.snap.name, takenAgo(shot.snap.takenAt)].filter(Boolean).join(" · ")
+                      [shot.snap.name, takenAgo(shot.snap.takenAt, zone)].filter(Boolean).join(" · ")
                     ) : d.connected ? (
                       "Connected"
                     ) : (
@@ -215,7 +216,7 @@ export default function Screens() {
         >
           <div className="flex items-center justify-between px-4 py-3 text-sm">
             <span>
-              {[zoomed.name, zoomed.snap.name, takenAgo(zoomed.snap.takenAt)].filter(Boolean).join(" · ")}
+              {[zoomed.name, zoomed.snap.name, takenAgo(zoomed.snap.takenAt, zone)].filter(Boolean).join(" · ")}
             </span>
             <button type="button" autoFocus onClick={() => setZoomed(null)} aria-label="Close" className="rounded-full p-2">
               <X size={22} />

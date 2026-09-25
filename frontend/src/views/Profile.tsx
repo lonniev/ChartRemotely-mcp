@@ -1,25 +1,82 @@
 /**
- * Who you are, what you can spend, and which screens are yours.
+ * Who you are, what you can spend and have spent, which screens are yours, the
+ * clock your pictures are stamped in, and what is running.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { Check, Link2, LogOut, Mic, MonitorOff, MonitorPlay, Trash2, X } from "lucide-react";
 import { ProofRequiredError } from "@tollbooth-dpyc/web";
-import { NostrProfilePanel, WalletCard, type Session } from "@tollbooth-dpyc/web/react";
+import {
+  BuildInfoPanel,
+  NostrProfilePanel,
+  TimezonePicker,
+  UsageSummary,
+  WalletCard,
+  type BuildInfoPanelClassNames,
+  type Session,
+  type UsageSummaryClassNames,
+} from "@tollbooth-dpyc/web/react";
 import { forgetDisplay, getShortcut, listDisplays, pairDisplay, type Display } from "../lib/chart";
 import { displayNames, normalizeCode, orderDisplays } from "../lib/screens";
 
 const card = "rounded-2xl border border-[var(--tb-line)] bg-[var(--tb-surface)] p-4";
 const field =
   "rounded-lg border border-[var(--tb-line)] bg-transparent px-3 py-2.5 text-sm focus:border-[var(--tb-accent)] focus:outline-none";
+const heading = "text-sm text-[var(--tb-muted)]";
+
+const usageStyles: UsageSummaryClassNames = {
+  root: card,
+  header: "mb-3 flex items-center justify-between gap-3",
+  heading,
+  chip: "rounded-full border border-[var(--tb-line)] px-3 py-1 text-xs disabled:opacity-40",
+  figures: "grid grid-cols-3 gap-2",
+  figure: "rounded-xl bg-[var(--tb-surface-2)] px-3 py-2",
+  value: "font-mono text-base tabular-nums",
+  label: "text-[11px] text-[var(--tb-muted)]",
+  subheading: "mt-4 mb-1 text-xs text-[var(--tb-muted)]",
+  list: "divide-y divide-[var(--tb-line)]",
+  row: "flex items-baseline gap-2 py-2 text-sm",
+  tool: "min-w-0 flex-1 truncate font-mono text-xs",
+  calls: "text-xs text-[var(--tb-muted)]",
+  sats: "w-20 text-right font-mono text-xs tabular-nums text-[var(--tb-accent)]",
+  loading: "text-sm text-[var(--tb-muted)]",
+  error: "text-xs text-[var(--tb-err-ink)]",
+  empty: "mt-3 text-sm text-[var(--tb-muted)]",
+};
+
+const buildStyles: BuildInfoPanelClassNames = {
+  root: `${card} text-sm`,
+  heading: `${heading} mb-2`,
+  section: "mt-3 mb-1 text-[11px] uppercase tracking-wide text-[var(--tb-muted)]",
+  row: "flex items-baseline gap-3 py-0.5",
+  label: "w-28 flex-none text-xs text-[var(--tb-muted)]",
+  value: "min-w-0 flex-1 break-words text-xs",
+  link: "text-[var(--tb-accent)] hover:underline",
+};
 
 export default function Profile({ session }: { session: Session }) {
   return (
     <div className="mx-auto max-w-lg space-y-4 px-4 py-6">
       <NostrProfilePanel npub={session.npub} />
       <WalletCard />
+      <UsageSummary classNames={usageStyles} />
       <Displays />
       <Voice />
+      <section className={card}>
+        <TimezonePicker
+          label="Time zone"
+          classNames={{
+            root: "flex flex-col gap-2",
+            label: heading,
+            select: `${field} w-full bg-[var(--tb-surface)]`,
+          }}
+        />
+        <p className="mt-2 text-xs text-[var(--tb-muted)]">When your pictures were taken, in this zone.</p>
+      </section>
+      <BuildInfoPanel
+        frontend={{ version: __APP_VERSION__, source: "https://github.com/lonniev/ChartRemotely-mcp" }}
+        classNames={buildStyles}
+      />
       <div className="flex items-center gap-3 px-1 pb-4">
         <span className="min-w-0 flex-1 text-[11px] text-[var(--tb-muted)]">
           {session.canSign ? "Signing with a key held in this tab." : "Signed in on a cached proof, which expires."}
