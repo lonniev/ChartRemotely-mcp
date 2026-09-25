@@ -12,13 +12,15 @@
 const STATUS_EVERY_MS = 30_000;
 
 import { useCallback, useEffect, useState } from "react";
-import { Camera, Eye, Loader2, MonitorOff, MonitorPlay, Plus, X } from "lucide-react";
+import { Camera, Eye, MonitorOff, MonitorPlay, Plus, X } from "lucide-react";
 import { ProofRequiredError } from "@tollbooth-dpyc/web";
+import { QuoteScroller } from "@tollbooth-dpyc/web/react";
 import Carousel from "../components/Carousel";
 import KeptStrip from "../components/KeptStrip";
 import { listDisplays, takeLatest, takeSnapshot, type Display, type Snapshot } from "../lib/chart";
 import { go } from "../lib/route";
 import { clockTime, displayNames, hasNewer, orderDisplays, takenAgo } from "../lib/screens";
+import { TRADING_QUOTES } from "../lib/tradingQuotes";
 
 interface Shot {
   snap?: Snapshot;
@@ -74,9 +76,7 @@ export default function Screens() {
 
   if (displays === null && !error) {
     return (
-      <div className="flex justify-center py-24 text-[var(--tb-muted)]">
-        <Loader2 className="animate-spin" />
-      </div>
+      <QuoteScroller quotes={TRADING_QUOTES} heading="Finding your screens…" spinner className="mx-auto max-w-2xl py-20" />
     );
   }
 
@@ -132,7 +132,7 @@ export default function Screens() {
                   >
                     <img src={shot.snap.src} alt={`What ${name} is showing`} className="h-full w-full object-contain" />
                   </button>
-                ) : (
+                ) : shot.busy ? null : (
                   <div className="flex h-full flex-col items-center justify-center gap-3 text-[var(--tb-muted)]">
                     {d.connected ? <MonitorPlay size={44} /> : <MonitorOff size={44} />}
                     <span className="text-sm">{d.connected ? "Tap the camera to look" : "Offline"}</span>
@@ -148,8 +148,14 @@ export default function Screens() {
                   </button>
                 )}
                 {shot.busy && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                    <Loader2 className="animate-spin" size={32} />
+                  // Inside the picture's fixed-ratio box, so nothing moves when it arrives.
+                  <div className="absolute inset-0 flex items-center justify-center overflow-hidden bg-black/85">
+                    <QuoteScroller
+                      quotes={TRADING_QUOTES}
+                      heading="Fetching your chart…"
+                      spinner
+                      className="w-full max-sm:px-3! max-sm:py-2! max-sm:[&_blockquote]:text-[14px]! max-sm:[&_blockquote]:leading-snug! max-sm:[&>div:first-child]:mb-2!"
+                    />
                   </div>
                 )}
               </div>
