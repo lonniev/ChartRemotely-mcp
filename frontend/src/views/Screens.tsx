@@ -20,6 +20,7 @@ import KeptStrip from "../components/KeptStrip";
 import { listDisplays, takeLatest, takeSnapshot, type Display, type Snapshot } from "../lib/chart";
 import { go } from "../lib/route";
 import { clockTime, displayNames, hasNewer, orderDisplays, takenAgo } from "../lib/screens";
+import { pictureQuoteStyles, quoteStyles } from "../lib/quoteStyles";
 import { TRADING_QUOTES } from "../lib/tradingQuotes";
 
 interface Shot {
@@ -76,7 +77,9 @@ export default function Screens() {
 
   if (displays === null && !error) {
     return (
-      <QuoteScroller quotes={TRADING_QUOTES} heading="Finding your screens…" spinner className="mx-auto max-w-2xl py-20" />
+      <div className="mx-auto max-w-2xl py-14">
+        <QuoteScroller quotes={TRADING_QUOTES} heading="Finding your screens…" spinner classNames={quoteStyles} />
+      </div>
     );
   }
 
@@ -154,7 +157,7 @@ export default function Screens() {
                       quotes={TRADING_QUOTES}
                       heading="Fetching your chart…"
                       spinner
-                      className="w-full max-sm:px-3! max-sm:py-2! max-sm:[&_blockquote]:text-[14px]! max-sm:[&_blockquote]:leading-snug! max-sm:[&>div:first-child]:mb-2!"
+                      classNames={pictureQuoteStyles}
                     />
                   </div>
                 )}
