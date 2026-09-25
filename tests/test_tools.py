@@ -5,8 +5,11 @@ actually reaches an MCP client - not what a function returned before the
 wheel's decorators and FastMCP's serializer had their say.
 """
 
+import asyncio
 import base64
+import threading
 import time
+from contextlib import contextmanager
 
 import pytest
 from fastmcp import Client
@@ -379,7 +382,11 @@ OTHER = "npub1stranger"
 
 
 class ForwardingStore(FakeStore):
-    """Two owners' displays; records which display each command was sent to."""
+    """Two owners' displays; records which display each command was sent to.
+
+    ``hold`` keeps every relay waiting until the test sets it, so a test can
+    see what the caller was told before the chart changed.
+    """
 
     def __init__(self, reply="Showing PLTR at daily. Good luck.", displays=None):
         now = time.time()
@@ -390,69 +397,191 @@ class ForwardingStore(FakeStore):
             Agent(agent_id="x1", npub=OTHER, label="office", secret="", last_seen=now),
         ])
         self.to: list[tuple[str, str]] = []
+        self.hold = threading.Event()
+        self.hold.set()
+        self.settled = threading.Event()
 
     async def send(self, agent_id, command, timeout=0):
         self.to.append((agent_id, command))
+        while not self.hold.is_set():
+            await asyncio.sleep(0.01)
         return await super().send(agent_id, command, timeout)
 
 
-def forward(fake, monkeypatch, **body):
+@pytest.fixture
+def fares(monkeypatch):
+    """The wheel's pricing, constraint and billing stages, counted.
+
+    ``balance`` is what the owner holds; a fare of 3 beyond it is refused the
+    way the wheel refuses it.
+    """
+    calls = {"priced": [], "debited": [], "refunded": [], "balance": 100}
+
+    async def resolve_pricing(tool_id, name, category, tool_kwargs):
+        calls["priced"].append((tool_id, name, category, dict(tool_kwargs)))
+        return 3, None
+
+    async def evaluate_constraints(tool_id, name, npub, cost, dpop_token):
+        return cost, [], None
+
+    async def apply_billing(npub, name, cost, coupons):
+        if calls["balance"] < cost:
+            return {"success": False, "error_code": "insufficient_balance",
+                    "error": f"Insufficient balance: {calls['balance']} sats available, "
+                             f"{cost} required for {name}."}
+        calls["balance"] -= cost
+        calls["debited"].append((npub, name, cost))
+        return cost
+
+    async def rollback_debit(tool_id, npub, **kw):
+        calls["refunded"].append((tool_id, npub))
+
+    monkeypatch.setattr(server.runtime, "_resolve_pricing", resolve_pricing)
+    monkeypatch.setattr(server.runtime, "_evaluate_constraints", evaluate_constraints)
+    monkeypatch.setattr(server.runtime, "_apply_billing", apply_billing)
+    monkeypatch.setattr(server.runtime, "rollback_debit", rollback_debit)
+    for name in ("fire_and_forget_demand_increment", "fire_and_forget_supply_increment",
+                 "fire_and_forget_notarize_if_stale"):
+        monkeypatch.setattr(server.runtime, name, lambda *a, **k: None)
+    return calls
+
+
+@contextmanager
+def forwarding(fake, monkeypatch):
+    """A client for /agent/forward whose background relays run until it closes."""
     use(monkeypatch, fake)
     with TestClient(server.mcp.http_app()) as client:
-        return client.post("/agent/forward", json={"agent_id": "a1", "secret": "s1", **body})
+        def post(**body):
+            return client.post("/agent/forward", json={"agent_id": "a1", "secret": "s1", **body})
+        yield post
 
 
-def test_a_stranger_cannot_forward(monkeypatch):
+def forward(fake, monkeypatch, **body):
+    with forwarding(fake, monkeypatch) as post:
+        response = post(**body)
+        settle()
+        return response
+
+
+def settle():
+    """Wait for every relay the operator started in the background."""
+    deadline = time.time() + 5
+    while server._IN_FLIGHT and time.time() < deadline:
+        time.sleep(0.01)
+    assert not server._IN_FLIGHT, "a background relay never finished"
+
+
+def test_a_stranger_cannot_forward(monkeypatch, fares):
     fake = ForwardingStore()
     r = forward(fake, monkeypatch, secret="guess", display="Mac Mini", cmd="set PLTR | daily")
-    assert r.status_code == 403 and fake.to == []
+    assert r.status_code == 403 and fake.to == [] and fares["debited"] == []
 
 
 @pytest.mark.parametrize("said", ["Mac Mini", "mac-mini", "macmini", "MAC MINI", "mac_mini", "a2"])
-def test_the_named_display_gets_the_command_verbatim_and_its_reply_comes_back(monkeypatch, said):
+def test_the_named_display_gets_the_command_verbatim(monkeypatch, fares, said):
     fake = ForwardingStore()
     r = forward(fake, monkeypatch, display=said, cmd="set PLTR | daily")
-    assert r.status_code == 200
-    assert r.json() == {"display": "Mac Mini", "reply": "Showing PLTR at daily. Good luck."}
+    assert r.status_code == 202
+    assert r.json() == {"accepted": True, "display": "Mac Mini", "symbol": "PLTR", "scale": "daily"}
     assert fake.to == [("a2", "set PLTR | daily")]
 
 
-def test_another_owners_display_is_not_reachable_even_by_id(monkeypatch):
+def test_a_forward_is_priced_once_as_show_chart_for_the_owner(monkeypatch, fares):
+    forward(ForwardingStore(), monkeypatch, display="Mac Mini", cmd="set PLTR | half")
+    [(tool_id, name, category, kwargs)] = fares["priced"]
+    assert (tool_id, name, category) == (server.SHOW_CHART_UUID, "chart_show_chart", "write")
+    assert kwargs == {"security": "PLTR", "scale": "half", "display": "Mac Mini",
+                      "npub": NPUB, "dpop_token": ""}
+    assert fares["debited"] == [(NPUB, "chart_show_chart", 3)] and fares["refunded"] == []
+
+
+def test_a_bare_company_is_priced_as_show_chart_and_relayed_as_said(monkeypatch, fares):
+    fake = ForwardingStore()
+    r = forward(fake, monkeypatch, display="Mac Mini", cmd="john deere")
+    assert r.status_code == 202 and r.json() == {"accepted": True, "display": "Mac Mini"}
+    assert fares["priced"][0][3]["security"] == "john deere"
+    assert fake.to == [("a2", "john deere")] and len(fares["debited"]) == 1
+
+
+def test_the_callers_own_agent_id_is_charged_and_relayed_to_itself(monkeypatch, fares):
+    fake = ForwardingStore()
+    r = forward(fake, monkeypatch, display="a1", cmd="set PLTR | daily")
+    assert r.status_code == 202 and r.json()["display"] == "desk"
+    assert fake.to == [("a1", "set PLTR | daily")] and len(fares["debited"]) == 1
+
+
+def test_accepted_goes_back_before_the_chart_changes(monkeypatch, fares):
+    fake = ForwardingStore()
+    fake.hold.clear()
+    with forwarding(fake, monkeypatch) as post:
+        r = post(display="Mac Mini", cmd="set PLTR | daily")
+        assert r.status_code == 202 and server._IN_FLIGHT, "the relay is still running"
+        fake.hold.set()
+        settle()
+    assert fake.to == [("a2", "set PLTR | daily")] and fares["refunded"] == []
+
+
+def test_insufficient_balance_is_refused_at_once_and_nothing_is_sent(monkeypatch, fares):
+    fares["balance"] = 2
+    fake = ForwardingStore()
+    r = forward(fake, monkeypatch, display="Mac Mini", cmd="set PLTR | daily")
+    assert r.status_code == 402 and r.json()["error_code"] == "insufficient_balance"
+    assert r.json()["error"].startswith("Insufficient balance")
+    assert fake.to == [] and fares["debited"] == []
+
+
+def test_a_display_that_never_answers_is_refunded(monkeypatch, fares, caplog):
+    fake = ForwardingStore(reply=TimeoutError())
+    r = forward(fake, monkeypatch, display="Mac Mini", cmd="set PLTR | daily")
+    assert r.status_code == 202
+    assert fares["refunded"] == [(server.SHOW_CHART_UUID, NPUB)]
+    assert "Mac Mini (a2) failed, fare refunded" in caplog.text and "s1" not in caplog.text
+
+
+def test_a_display_that_answers_err_keeps_the_fare_and_says_so_in_the_log(monkeypatch, fares, caplog):
+    fake = ForwardingStore(reply="ERR no match for 'zzz'")
+    forward(fake, monkeypatch, display="Mac Mini", cmd="zzz")
+    assert len(fares["debited"]) == 1 and fares["refunded"] == []
+    assert "Mac Mini (a2) answered: ERR no match" in caplog.text
+
+
+@pytest.mark.parametrize("cmd", ["read", "snapshot", "resolve palantir", "scale half", "set  | half"])
+def test_only_a_chart_change_is_forwarded(monkeypatch, fares, cmd):
+    fake = ForwardingStore()
+    r = forward(fake, monkeypatch, display="Mac Mini", cmd=cmd)
+    assert r.status_code == 400 and fake.to == [] and fares["debited"] == []
+
+
+def test_another_owners_display_is_not_reachable_even_by_id(monkeypatch, fares):
     fake = ForwardingStore()
     for said in ("office", "x1"):
-        r = forward(fake, monkeypatch, display=said, cmd="read")
+        r = forward(fake, monkeypatch, display=said, cmd="set PLTR | daily")
         assert r.status_code == 404
         assert r.json()["displays"] == ["desk", "Mac Mini", "attic"]
-    assert fake.to == []
+    assert fake.to == [] and fares["debited"] == []
 
 
-def test_an_unknown_name_lists_the_owners_displays(monkeypatch):
-    r = forward(ForwardingStore(), monkeypatch, display="kitchen", cmd="read")
+def test_an_unknown_name_lists_the_owners_displays(monkeypatch, fares):
+    r = forward(ForwardingStore(), monkeypatch, display="kitchen", cmd="set PLTR | daily")
     assert r.status_code == 404
     assert r.json() == {"error": "no display named 'kitchen'",
                         "displays": ["desk", "Mac Mini", "attic"]}
+    assert fares["debited"] == []
 
 
-def test_an_offline_display_is_reported_not_queued(monkeypatch):
+def test_an_offline_display_is_reported_not_queued_or_charged(monkeypatch, fares):
     fake = ForwardingStore()
-    r = forward(fake, monkeypatch, display="Attic", cmd="read")
+    r = forward(fake, monkeypatch, display="Attic", cmd="set PLTR | daily")
     assert r.status_code == 503 and "attic is offline" in r.json()["error"]
-    assert fake.to == []
+    assert fake.to == [] and fares["debited"] == []
 
 
-def test_the_callers_own_name_sends_it_back_to_run_itself(monkeypatch):
-    fake = ForwardingStore()
-    r = forward(fake, monkeypatch, display="DESK", cmd="read")
-    assert r.status_code == 200 and r.json() == {"self": True, "display": "desk"}
-    assert fake.to == []
-
-
-def test_twins_are_refused_with_the_candidates(monkeypatch):
+def test_twins_are_refused_with_the_candidates(monkeypatch, fares):
     fake = ForwardingStore(displays=[
         Agent(agent_id="a1", npub=NPUB, label="desk", secret="", last_seen=time.time()),
         Agent(agent_id="t1", npub=NPUB, label="wall", secret=""),
         Agent(agent_id="t2", npub=NPUB, label="Wall", secret="")])
-    r = forward(fake, monkeypatch, display="wall", cmd="read")
+    r = forward(fake, monkeypatch, display="wall", cmd="set PLTR | daily")
     assert r.status_code == 409
     assert [c["agent_id"] for c in r.json()["candidates"]] == ["t1", "t2"]
     assert r.json()["error"] == ("Two displays are named wall; "
@@ -464,33 +593,27 @@ def test_twins_are_refused_with_the_candidates(monkeypatch):
     (["Mac mini", "Mac studio", "Mac pro"], "Which one: Mac mini, Mac studio or Mac pro?"),
 ])
 def test_a_loose_name_that_finds_several_is_spoken_as_a_question_without_ids(
-        monkeypatch, labels, spoken):
+        monkeypatch, fares, labels, spoken):
     fake = ForwardingStore(displays=[
         Agent(agent_id="a1", npub=NPUB, label="desk", secret="", last_seen=time.time()),
         *[Agent(agent_id=f"m{i}", npub=NPUB, label=label, secret="")
           for i, label in enumerate(labels)]])
-    r = forward(fake, monkeypatch, display="mac", cmd="read")
+    r = forward(fake, monkeypatch, display="mac", cmd="set PLTR | daily")
     assert r.status_code == 409 and r.json()["error"] == spoken
     assert not any(f"m{i}" in r.json()["error"] for i in range(len(labels)))
     assert fake.to == []
-
-
-def test_a_display_that_never_answers_is_a_timeout(monkeypatch):
-    fake = ForwardingStore(reply=TimeoutError())
-    r = forward(fake, monkeypatch, display="Mac Mini", cmd="read")
-    assert r.status_code == 504
 
 
 @pytest.mark.parametrize("body", [
     {"display": "Mac Mini", "cmd": "x" * 201},
     {"display": "Mac Mini", "cmd": "set PLTR\n| daily"},
     {"display": "Mac Mini", "cmd": ""},
-    {"display": "Mac Mini", "cmd": ["read"]},
-    {"display": "m" * 65, "cmd": "read"},
-    {"display": "", "cmd": "read"},
-    {"cmd": "read"},
+    {"display": "Mac Mini", "cmd": ["set PLTR | daily"]},
+    {"display": "m" * 65, "cmd": "set PLTR | daily"},
+    {"display": "", "cmd": "set PLTR | daily"},
+    {"cmd": "set PLTR | daily"},
 ])
-def test_a_malformed_forward_is_refused_before_anything_is_sent(monkeypatch, body):
+def test_a_malformed_forward_is_refused_before_anything_is_sent(monkeypatch, fares, body):
     fake = ForwardingStore()
     r = forward(fake, monkeypatch, **body)
-    assert r.status_code == 400 and fake.to == []
+    assert r.status_code == 400 and fake.to == [] and fares["debited"] == []

@@ -69,19 +69,31 @@ it.
 
 ## Forwarding between displays
 
-A voice command is heard by one Mac, but may be meant for another display of
-the same owner. The hearing agent posts to `/agent/forward`:
+A voice command is heard by one Mac, and every chart change it hears goes to
+the operator - one for that same Mac included (it names its own agent_id). The
+hearing agent posts to `/agent/forward`:
 
 ```
-{agent_id, secret, display: "<name as dictated>", cmd: "set PLTR | daily"}
+{agent_id, secret, display: "<name as dictated, or its own agent_id>", cmd: "set PLTR | daily"}
 ```
 
 The operator authenticates the caller, finds `display` among the caller's
 owner's displays only — by agent_id, or by a loosely matched name (see
-"Naming a display") — relays `cmd` opaque, and returns `{display, reply}`.
-`{self: true}` means the name is the caller's own and it runs the command
-itself. 404 carries the owner's names (`displays`), 409 the displays the name
-could mean (`candidates`), 503 an offline target, 504 no answer. Unmetered.
+"Naming a display") — and charges the owner exactly what `chart_show_chart`
+would: the same price, constraint chain and ledger entry, taken through the
+wheel's own pricing and billing stages. The caller's pairing secret stands in
+for the npub proof: pairing bound it to that npub with the npub's own proof.
+Then it answers **202** `{accepted, display, symbol?, scale?}` at once and
+relays `cmd` opaque in the background; the chart changes by itself. A target
+that never answers is refunded and logged; an answered command keeps its fare,
+as a tool call does.
+
+Only a chart change is forwarded: `set <TICKER> | <scale>` or a bare company
+name. `resolve`, `scale`, `read` and `snapshot` are 400. Refusals are
+immediate: 402 insufficient balance (the wheel's words, in `error`), 403 a
+constraint denied it, 404 with the owner's names (`displays`), 409 with the
+displays the name could mean (`candidates`), 503 an offline target or a
+service that cannot price right now.
 
 ## Naming a display
 

@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- `/agent/forward` is priced. Every voice chart change now arrives here, and the owner is charged exactly what `chart_show_chart` costs - same price, constraint chain and ledger entry, through the wheel's own pricing and billing stages - because pricing happens however a request arrives. Insufficient balance is refused at once (402), before anything is sent.
+- `/agent/forward` answers 202 `{accepted, display, symbol?, scale?}` as soon as the change is paid for, and relays it in the background; the chart updates by itself. A display that never answers is refunded and logged; the caller no longer waits up to 25 s on the relay.
+- A display's own agent_id is a valid `display`: the change is charged and relayed back to that same Mac. The `{self: true}` answer is gone, and so is `FORWARD_TIMEOUT_SECONDS` (a background relay waits as long as a tool call's does).
+- Only chart changes are forwarded (`set …` or a bare company name); `resolve`, `scale`, `read` and `snapshot` are 400.
+
 ### Added
 - Picture replies (`snapshot_display`, `latest_snapshot`) now carry a one-line text summary before the image - display, symbol, scale and capture time, leaving out whatever is unknown - so the facts survive a client dropping images when it compacts, and reach a client that cannot render images at all. Same tools, same price; `structured_content` gains `scale`.
 - A kept picture remembers the scale its display stated (new nullable `scale` column on `chart_pictures`, added idempotently). `/agent/snapshot` accepts an optional `scale`; one that is not a short printable label (24 characters at most) is dropped and the picture kept.

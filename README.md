@@ -57,6 +57,11 @@ display, symbol, scale, capture time, e.g. `Mac mini · PLTR · half · captured
 survives when a client drops images to compact a long conversation, and it is
 all a client that cannot render images gets.
 
+A voice command costs what `show_chart` costs. The Shortcut hands it to the
+Mac that heard it, which sends it here (`/agent/forward`); the owner is charged
+there, the Mac is told at once, and the chart changes a moment later. A display
+that never answers is refunded (see [PROTOCOL.md](PROTOCOL.md#forwarding-between-displays)).
+
 `display` may be said loosely: "mini mac", "mini" or "mack meeny" all find
 "Mac mini". A name that could mean several displays is answered with them
 (see [PROTOCOL.md](PROTOCOL.md#naming-a-display) for the rules).

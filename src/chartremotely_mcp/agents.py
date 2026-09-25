@@ -27,9 +27,6 @@ _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 CODE_LENGTH = 6
 CODE_TTL_SECONDS = 15 * 60
 COMMAND_TIMEOUT_SECONDS = 45
-#: How long a command forwarded from one display to another may take. Shorter
-#: than a relayed tool call's, because a Siri Shortcut is waiting on it.
-FORWARD_TIMEOUT_SECONDS = 25
 #: How long a display's latest picture is kept for anyone to look at.
 LATEST_TTL_SECONDS = 60 * 60
 #: How many symbols' pictures a display keeps; the oldest beyond this go.

@@ -14,6 +14,7 @@ Run locally:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -572,16 +573,102 @@ def _which_one(candidates: list[agents.Agent]) -> str:
     return f"Which one: {', '.join(names[:-1])} or {names[-1]}?"
 
 
+#: Verbs a display answers itself, for free, without changing its chart. They
+#: are never forwarded: a lookup is not a chart change and has no fare.
+_NOT_FORWARDED = frozenset({"resolve", "scale", "read", "snapshot"})
+
+
+def _show_chart_args(command: str) -> dict[str, str] | None:
+    """A forwarded command as the ``chart_show_chart`` arguments it amounts to.
+
+    ``set <TICKER> | <scale>`` and a bare company name are the two ways a
+    voice command changes a chart; both are exactly what ``show_chart`` sends.
+    Anything else is not a chart change and is not forwarded (None).
+    """
+    verb, _, rest = command.partition(" ")
+    if verb.lower() in _NOT_FORWARDED:
+        return None
+    if verb.lower() != "set":
+        return {"security": command, "scale": ""}
+    ticker, sep, scale = rest.partition("|")
+    if not ticker.strip():
+        return None
+    return {"security": ticker.strip(), "scale": scale.strip() if sep else ""}
+
+
+async def _charge(tool_id: str, npub: str, tool_kwargs: dict[str, Any]) -> int | dict[str, Any]:
+    """Debit ``npub`` what a direct call of ``tool_id`` with these arguments costs.
+
+    The wheel's own stages, in ``debit_or_deny``'s order after its proof gate:
+    price, constraint chain (discounts, coupons, denials), then the atomic
+    write-through debit under the tool's MCP name - so the fare and the ledger
+    entry are the ones a tool call makes. The proof is the calling agent's
+    pairing secret: pairing bound it to this npub with the npub's own proof,
+    and it is checked before this runs. Returns the cost, or the wheel's
+    refusal (insufficient balance, not priced, constraint denied, warming up).
+    """
+    name = runtime.mcp_name_for(tool_id)
+    cost, refused = await runtime._resolve_pricing(
+        tool_id, name, TOOL_REGISTRY[tool_id].category, tool_kwargs)
+    if refused is not None:
+        return refused
+    cost, coupons, refused = await runtime._evaluate_constraints(tool_id, name, npub, cost, "")
+    if refused is not None:
+        return refused
+    return await runtime._apply_billing(npub, name, cost, coupons)
+
+
+def _refusal_status(refused: dict[str, Any]) -> int:
+    code = refused.get("error_code")
+    if code == "insufficient_balance":
+        return 402
+    if code == "constraint_denied":
+        return 403
+    return 503
+
+
+#: Relays still running after their 202 went out. Held so the event loop's
+#: weak reference is not the only one, which would let a task be collected.
+_IN_FLIGHT: set[asyncio.Task] = set()
+
+
+async def _deliver(target: agents.Agent, command: str, npub: str,
+                   tool_kwargs: dict[str, Any]) -> None:
+    """Relay one paid-for command and settle it as ``show_chart`` would.
+
+    No answer refunds the fare, as a body that raises does under
+    ``paid_tool``; an answered command, ERR or not, keeps it. Nobody is
+    waiting, so every outcome but success is a log line: the display, its
+    agent_id and the reply's first words - never a secret or a picture.
+    """
+    try:
+        reply = await (await store()).send(target.agent_id, command)
+    except Exception as exc:  # noqa: BLE001 - every failure is a refund
+        await runtime.rollback_debit(SHOW_CHART_UUID, npub, tool_kwargs=tool_kwargs)
+        logger.warning("forward to %s (%s) failed, fare refunded: %s",
+                       target.label, target.agent_id,
+                       NO_ANSWER if isinstance(exc, TimeoutError) else type(exc).__name__)
+        return
+    name = runtime.mcp_name_for(SHOW_CHART_UUID)
+    runtime.fire_and_forget_demand_increment(name)
+    runtime.fire_and_forget_supply_increment(name)
+    runtime.fire_and_forget_notarize_if_stale()
+    if reply.startswith("ERR"):
+        logger.warning("forward to %s (%s) answered: %s",
+                       target.label, target.agent_id, reply.splitlines()[0][:120])
+
+
 @mcp.custom_route("/agent/forward", methods=["POST"])
 async def agent_forward(request: Request) -> JSONResponse:
-    """One display hands a command to another of the SAME owner's displays.
+    """A display hands a spoken chart change to one of its owner's displays.
 
-    The Mac that heard "Hey Siri" names the display it was told, verbatim;
-    the lookup is by agent_id or by a loosely matched name (see
-    ``displays.match``), among the caller's owner's displays and nobody else's. The command is relayed
-    opaque, like any other, and the target's reply comes back to be spoken.
-
-    Unmetered: the caller is an authenticated agent, not a patron's tool call.
+    Every voice command comes here, including one for the hearing Mac itself
+    (it names its own agent_id). The lookup is by agent_id or by a loosely
+    matched name (see ``displays.match``), among the caller's owner's displays
+    and nobody else's. The change is priced and debited from the owner exactly
+    as ``chart_show_chart`` would be, then 202 goes back at once and the
+    command is relayed, opaque, in the background: the chart updates itself,
+    and a display that never answers is refunded.
     """
     try:
         body = await request.json()
@@ -599,6 +686,10 @@ async def agent_forward(request: Request) -> JSONResponse:
         return JSONResponse({"error": "a display name and a command are required, "
                                       f"at most {FORWARD_DISPLAY_MAX} and {FORWARD_CMD_MAX} "
                                       "printable characters"}, status_code=400)
+    shown = _show_chart_args(command)
+    if shown is None:
+        return JSONResponse({"error": "Only a chart change can be sent to a display."},
+                            status_code=400)
     try:
         target = await db.resolve(caller.npub, display)
     except NoSuchDisplay as exc:
@@ -611,18 +702,24 @@ async def agent_forward(request: Request) -> JSONResponse:
     except LookupError:
         return JSONResponse({"error": f"no display named {display!r}", "displays": []},
                             status_code=404)
-    if target.agent_id == caller.agent_id:
-        # The caller was told its own name: it runs the command itself.
-        return JSONResponse({"self": True, "display": target.label})
     if not target.connected():
         return JSONResponse({"error": f"{target.label} is offline", "display": target.label},
                             status_code=503)
-    try:
-        reply = await db.send(target.agent_id, command, timeout=agents.FORWARD_TIMEOUT_SECONDS)
-    except TimeoutError:
-        return JSONResponse({"error": f"{target.label} did not answer", "display": target.label},
-                            status_code=504)
-    return JSONResponse({"display": target.label, "reply": reply})
+    tool_kwargs = {**shown, "display": display, "npub": caller.npub, "dpop_token": ""}
+    charged = await _charge(SHOW_CHART_UUID, caller.npub, tool_kwargs)
+    if isinstance(charged, dict):
+        return JSONResponse({"error": str(charged.get("error") or "refused"),
+                             "error_code": charged.get("error_code"), "display": target.label},
+                            status_code=_refusal_status(charged))
+    task = asyncio.create_task(_deliver(target, command, caller.npub, tool_kwargs))
+    _IN_FLIGHT.add(task)
+    task.add_done_callback(_IN_FLIGHT.discard)
+    accepted: dict[str, Any] = {"accepted": True, "display": target.label}
+    if command.partition(" ")[0].lower() == "set":
+        accepted["symbol"] = shown["security"]
+        if shown["scale"]:
+            accepted["scale"] = shown["scale"]
+    return JSONResponse(accepted, status_code=202)
 
 
 @mcp.custom_route("/agent/result", methods=["POST"])
