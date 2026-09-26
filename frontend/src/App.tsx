@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { MonitorPlay } from "lucide-react";
 import { avatarFor } from "@tollbooth-dpyc/web";
-import { Avatar, NpubGate, useSession } from "@tollbooth-dpyc/web/react";
+import { Avatar, DebugPanel, NpubGate, useSession } from "@tollbooth-dpyc/web/react";
 import { go, useView } from "./lib/route";
 import Profile from "./views/Profile";
 import Screens from "./views/Screens";
@@ -88,6 +88,11 @@ export default function App() {
         {view === "screens" && session.signedIn && <Screens />}
         {view === "profile" && session.signedIn && <Profile session={session} />}
       </main>
+
+      {/* The call log, for anyone signed in and at the gate (where a proof that
+          will not take is what needs seeing); strangers reading the public
+          pages make no calls worth showing. Last, so its spacer ends the page. */}
+      {(session.signedIn || view === "signin") && <DebugPanel />}
     </div>
   );
 }
