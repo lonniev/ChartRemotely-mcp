@@ -34,12 +34,15 @@ from typing import Any, NamedTuple
 
 from chartremotely_mcp import displays
 from chartremotely_mcp.agents import (
+    CAPTURE_TTL_SECONDS,
+    CAPTURES_PER_SYMBOL,
     CODE_TTL_SECONDS,
     COMMAND_TIMEOUT_SECONDS,
-    LATEST_KEEP,
-    LATEST_TTL_SECONDS,
+    SYMBOLS_KEPT,
     Agent,
+    capture_key,
     new_agent_id,
+    new_capture_id,
     new_pairing_code,
     new_secret,
     scale_label,
@@ -54,12 +57,28 @@ CLAIM_POLL_SECONDS = 0.7
 
 
 class KeptPicture(NamedTuple):
-    """A display's kept picture: the image and what is known about it."""
+    """One kept capture: the image and what is known about it."""
 
     data_url: str
     taken: float
     symbol: str
     scale: str | None = None
+    capture: str = ""
+
+
+class Capture(NamedTuple):
+    """A kept capture as listed: everything but the picture."""
+
+    capture: str
+    taken: float
+    scale: str | None = None
+
+
+class KeptSymbol(NamedTuple):
+    """One symbol a display has kept captures of, newest capture first."""
+
+    symbol: str
+    captures: list[Capture]
 
 
 class NoSuchDisplay(LookupError):
@@ -149,28 +168,33 @@ class AgentStore:
             "CREATE INDEX IF NOT EXISTS idx_chart_commands_pending "
             f"ON {self._t('chart_commands')} (agent_id, claimed_at)"
         )
-        # The newest picture of each symbol a display has shown, sealed.
-        # taken_at stays in the clear so "which is newest?" and the hourly
-        # sweep never need a decrypt.
+        # Captures: up to CAPTURES_PER_SYMBOL sealed pictures of each of a
+        # display's SYMBOLS_KEPT most recent symbols, each for
+        # CAPTURE_TTL_SECONDS. taken_at, symbol and scale stay in the clear so
+        # listing, ordering, capping and the sweep never need a decrypt.
         await self._neon._execute(
-            f"CREATE TABLE IF NOT EXISTS {self._t('chart_pictures')} ("
+            f"CREATE TABLE IF NOT EXISTS {self._t('chart_captures')} ("
             "    agent_id TEXT NOT NULL,"
+            "    capture_id TEXT NOT NULL,"
             "    symbol TEXT NOT NULL,"
-            "    taken_at TIMESTAMPTZ NOT NULL DEFAULT now(),"
+            "    taken_at TIMESTAMPTZ NOT NULL,"
+            "    scale TEXT,"
             "    image TEXT NOT NULL,"
-            "    PRIMARY KEY (agent_id, symbol)"
+            "    PRIMARY KEY (agent_id, capture_id)"
             ")"
         )
-        # Migration: scale arrived after chart_pictures did. Metadata like
-        # symbol and taken_at, so it is kept in the clear. Idempotent.
         await self._neon._execute(
-            f"ALTER TABLE {self._t('chart_pictures')} "
-            "ADD COLUMN IF NOT EXISTS scale TEXT")
-        # Migration: chart_pictures replaces chart_latest, which kept one
-        # picture per display. Those pictures are disposable - sealed, and
-        # gone within the hour anyway - so the old table is dropped rather
-        # than copied. Idempotent: once it is gone this does nothing.
-        await self._neon._execute(f"DROP TABLE IF EXISTS {self._t('chart_latest')}")
+            "CREATE INDEX IF NOT EXISTS idx_chart_captures_symbol "
+            f"ON {self._t('chart_captures')} (agent_id, symbol, taken_at)"
+        )
+        # Migration: chart_captures replaces chart_pictures (one picture per
+        # symbol) and, before it, chart_latest (one per display). Their rows
+        # are disposable - sealed, and gone within the hour they were kept
+        # for - and sealed under an AAD without a capture id, so they could
+        # not be opened as captures anyway. Dropped, not copied. Idempotent:
+        # once they are gone this does nothing.
+        for gone in ("chart_pictures", "chart_latest"):
+            await self._neon._execute(f"DROP TABLE IF EXISTS {self._t(gone)}")
 
     # -- pairing ---------------------------------------------------------
 
@@ -317,7 +341,7 @@ class AgentStore:
                 f"several displays are named {display!r} - name one by id: "
                 + ", ".join(a.agent_id for a in match))
         agent = match[0]
-        for table in ("chart_commands", "chart_pairings", "chart_pictures"):
+        for table in ("chart_commands", "chart_pairings", "chart_captures"):
             await self._neon._execute(
                 f"DELETE FROM {self._t(table)} WHERE agent_id = $1", [agent.agent_id])
         await self._neon._execute(
@@ -327,91 +351,112 @@ class AgentStore:
             npub, self.SECRET_FIELD.format(agent_id=agent.agent_id))
         return agent
 
-    # -- kept pictures ---------------------------------------------------
+    # -- kept captures ---------------------------------------------------
     #
     # A chart picture can carry what the patron has on screen, so it is kept
-    # only sealed, only the newest per symbol, for at most LATEST_KEEP
-    # symbols per display, and each only for an hour. AAD binds a ciphertext
-    # to its display AND its symbol: a row copied onto another display, or
-    # relabelled as another symbol, will not open.
+    # only sealed, only the newest CAPTURES_PER_SYMBOL of a symbol, only for
+    # a display's SYMBOLS_KEPT most recent symbols, and each only for
+    # CAPTURE_TTL_SECONDS. AAD binds a ciphertext to its display, its symbol
+    # AND its capture id: a row copied onto another display, relabelled as
+    # another symbol, or swapped for another capture, will not open.
 
     @staticmethod
-    def _latest_aad(agent_id: str, symbol: str) -> str:
-        return f"{agent_id}|latest|{symbol}"
+    def _capture_aad(agent_id: str, symbol: str, capture_id: str) -> str:
+        return f"{agent_id}|latest|{symbol}|{capture_id}"
 
-    async def _sweep_pictures(self) -> None:
+    async def _sweep_captures(self) -> None:
         await self._neon._execute(
-            f"DELETE FROM {self._t('chart_pictures')} "
-            f"WHERE taken_at <= now() - interval '{LATEST_TTL_SECONDS} seconds'")
+            f"DELETE FROM {self._t('chart_captures')} "
+            f"WHERE taken_at <= now() - interval '{CAPTURE_TTL_SECONDS} seconds'")
 
-    async def keep_latest(self, agent_id: str, data_url: str, symbol: str = "",
-                          scale: str | None = None) -> None:
-        """Keep a display's picture of one symbol, replacing that symbol's last.
+    async def keep_capture(self, agent_id: str, data_url: str, symbol: str = "",
+                           scale: str | None = None) -> str:
+        """Keep a new capture of one symbol on a display; returns its id.
 
-        Only the display's LATEST_KEEP most recent symbols survive. Refuses
-        when the picture cannot be sealed, and when ``symbol`` is not
-        symbol-shaped (ValueError). ``scale`` is the time frame the display
-        stated; one that is not scale-shaped is dropped, not refused.
+        After the insert, only the symbol's CAPTURES_PER_SYMBOL newest
+        captures and the display's SYMBOLS_KEPT most recently captured
+        symbols survive. Refuses when the picture cannot be sealed
+        (RuntimeError), and when ``symbol`` is not symbol-shaped
+        (ValueError). ``scale`` is the time frame the display stated; one
+        that is not scale-shaped is dropped, not refused.
         """
         key = symbol_key(symbol)
         scaled = scale_label(scale)
         if self._cipher is None:
             raise RuntimeError("no vault cipher: a picture is never stored in the clear")
-        sealed = self._cipher.encrypt(data_url, aad=self._latest_aad(agent_id, key))
-        table = self._t("chart_pictures")
+        capture_id = new_capture_id()
+        sealed = self._cipher.encrypt(data_url, aad=self._capture_aad(agent_id, key, capture_id))
+        table = self._t("chart_captures")
         await self._neon._execute(
-            f"INSERT INTO {table} (agent_id, symbol, image, scale, taken_at) "
-            "VALUES ($1, $2, $3, $4, now()) "
-            "ON CONFLICT (agent_id, symbol) "
-            "DO UPDATE SET image = EXCLUDED.image, scale = EXCLUDED.scale, taken_at = now()",
-            [agent_id, key, sealed, scaled])
+            f"INSERT INTO {table} (agent_id, capture_id, symbol, taken_at, scale, image) "
+            "VALUES ($1, $2, $3, now(), $4, $5)",
+            [agent_id, capture_id, key, scaled, sealed])
+        # The symbol's oldest beyond its cap.
+        await self._neon._execute(
+            f"DELETE FROM {table} WHERE agent_id = $1 AND symbol = $2 AND capture_id NOT IN ("
+            f"    SELECT capture_id FROM {table} WHERE agent_id = $1 AND symbol = $2"
+            f"    ORDER BY taken_at DESC, capture_id DESC LIMIT {CAPTURES_PER_SYMBOL})",
+            [agent_id, key])
+        # The display's symbols idle longest beyond its cap, every capture of them.
         await self._neon._execute(
             f"DELETE FROM {table} WHERE agent_id = $1 AND symbol NOT IN ("
-            f"    SELECT symbol FROM {table} WHERE agent_id = $1 "
-            f"    ORDER BY taken_at DESC LIMIT {LATEST_KEEP})",
+            f"    SELECT symbol FROM {table} WHERE agent_id = $1"
+            f"    GROUP BY symbol ORDER BY max(taken_at) DESC, symbol LIMIT {SYMBOLS_KEPT})",
             [agent_id])
+        return capture_id
 
-    async def kept_symbols(self, npub: str) -> dict[str, list[tuple[str, float]]]:
-        """Per display of the caller's, the symbols still kept, newest first."""
+    async def kept_captures(self, npub: str) -> dict[str, list[KeptSymbol]]:
+        """Per display of the caller's, the symbols still kept, each with its
+        captures - symbols by their newest capture, captures newest first."""
         result = await self._neon._execute(
-            f"SELECT l.agent_id, l.symbol, EXTRACT(EPOCH FROM l.taken_at) AS taken "
-            f"FROM {self._t('chart_pictures')} l "
+            "SELECT l.agent_id, l.symbol, l.capture_id, l.scale, "
+            "EXTRACT(EPOCH FROM l.taken_at) AS taken "
+            f"FROM {self._t('chart_captures')} l "
             f"JOIN {self._t('chart_agents')} a ON a.agent_id = l.agent_id "
-            f"WHERE a.npub = $1 AND l.taken_at > now() - interval '{LATEST_TTL_SECONDS} seconds' "
-            "ORDER BY l.taken_at DESC",
+            f"WHERE a.npub = $1 AND l.taken_at > now() - interval '{CAPTURE_TTL_SECONDS} seconds' "
+            "ORDER BY l.taken_at DESC, l.capture_id DESC",
             [npub])
-        kept: dict[str, list[tuple[str, float]]] = {}
+        grouped: dict[str, dict[str, list[Capture]]] = {}
         for r in result.get("rows", []):
-            kept.setdefault(r["agent_id"], []).append((r["symbol"], float(r["taken"])))
-        return kept
+            grouped.setdefault(r["agent_id"], {}).setdefault(r["symbol"], []).append(
+                Capture(r["capture_id"], float(r["taken"]), scale_label(r.get("scale"))))
+        # Rows arrive newest first, so each dict's insertion order is already
+        # symbols by their newest capture.
+        return {agent_id: [KeptSymbol(sym, caps) for sym, caps in symbols.items()]
+                for agent_id, symbols in grouped.items()}
 
-    async def latest(self, agent_id: str,
-                     symbol: str | None = None) -> KeptPicture | None:
-        """A display's kept picture, or None.
+    async def latest(self, agent_id: str, symbol: str | None = None,
+                     capture: str | None = None) -> KeptPicture | None:
+        """One of a display's kept captures, or None.
 
-        ``symbol`` None or empty means the display's newest picture of any
-        symbol; otherwise that symbol's (case-insensitive). Pictures past
-        their hour are deleted here rather than shown.
+        ``capture`` names one exactly (and, with ``symbol`` too, only if it
+        is of that symbol). Otherwise ``symbol`` means that symbol's newest
+        (case-insensitive), and neither means the display's newest of any.
+        Captures past their time are deleted here rather than shown. Raises
+        ValueError for a symbol or capture id that is not the right shape.
         """
-        await self._sweep_pictures()
-        table = self._t("chart_pictures")
+        where, params = ["agent_id = $1"], [agent_id]
+        if capture:
+            params.append(capture_key(capture))
+            where.append(f"capture_id = ${len(params)}")
         if symbol:
-            result = await self._neon._execute(
-                f"SELECT symbol, image, scale, EXTRACT(EPOCH FROM taken_at) AS taken "
-                f"FROM {table} WHERE agent_id = $1 AND symbol = $2",
-                [agent_id, symbol_key(symbol)])
-        else:
-            result = await self._neon._execute(
-                f"SELECT symbol, image, scale, EXTRACT(EPOCH FROM taken_at) AS taken "
-                f"FROM {table} WHERE agent_id = $1 ORDER BY taken_at DESC LIMIT 1",
-                [agent_id])
+            params.append(symbol_key(symbol))
+            where.append(f"symbol = ${len(params)}")
+        await self._sweep_captures()
+        result = await self._neon._execute(
+            "SELECT capture_id, symbol, image, scale, EXTRACT(EPOCH FROM taken_at) AS taken "
+            f"FROM {self._t('chart_captures')} WHERE {' AND '.join(where)} "
+            "ORDER BY taken_at DESC, capture_id DESC LIMIT 1",
+            params)
         rows = result.get("rows", [])
         if not rows or self._cipher is None:
             return None
         row = rows[0]
-        key = row["symbol"]
-        data_url = self._cipher.decrypt(row["image"], aad=self._latest_aad(agent_id, key))
-        return KeptPicture(data_url, float(row["taken"]), key, scale_label(row.get("scale")))
+        key, capture_id = row["symbol"], row["capture_id"]
+        data_url = self._cipher.decrypt(row["image"],
+                                        aad=self._capture_aad(agent_id, key, capture_id))
+        return KeptPicture(data_url, float(row["taken"]), key,
+                           scale_label(row.get("scale")), capture_id)
 
     # -- command bus -----------------------------------------------------
 

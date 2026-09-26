@@ -32,7 +32,7 @@ from tollbooth.tool_identity import STANDARD_IDENTITIES, ToolIdentity
 
 from chartremotely_mcp import __version__, agents, displays, snapshot
 from chartremotely_mcp.config import get_settings
-from chartremotely_mcp.store import AgentStore, AmbiguousDisplay, NoSuchDisplay
+from chartremotely_mcp.store import AgentStore, AmbiguousDisplay, KeptSymbol, NoSuchDisplay
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +58,11 @@ mcp = FastMCP(
         "## Managing displays\n"
         "chart_agent_status lists your displays and whether each is live; "
         "chart_forget_display removes one you no longer use. "
-        "chart_snapshot_display returns a picture of what a display shows; "
-        "chart_latest_snapshot shows one it kept after its chart changed — "
-        "the newest, or a given symbol's. A display keeps the newest picture "
-        "of each of its last 12 symbols, encrypted, each for an hour; "
-        "chart_agent_status lists them.\n"
+        "chart_snapshot_display returns a picture of what a display shows, "
+        "and keeps it; chart_latest_snapshot shows one a display kept — the "
+        "newest, a given symbol's newest, or one capture by its id. A display "
+        "keeps the newest 6 captures of each of its last 12 symbols, "
+        "encrypted, each for two hours; chart_agent_status lists them.\n"
         "The web app at https://chartremotely.tollbooth-dpyc.com does all of "
         "this from a browser.\n\n"
         "## Pricing\n"
@@ -258,21 +258,33 @@ async def pair_agent(
 @tool
 async def agent_status(npub: NPUB_FIELD = "", dpop_token: str = "") -> dict[str, Any]:
     """List the displays paired to you, whether each is connected, and the
-    pictures each has kept: one per symbol, newest first. Pass a kept entry's
-    ``symbol`` to chart_latest_snapshot to see it."""
+    captures each has kept: by symbol, the most recently captured symbol
+    first, and each symbol's captures newest first. Pass a capture's ``id``
+    (or just a symbol) to chart_latest_snapshot to see it."""
     if err := await runtime.require_caller_proof(npub, dpop_token, "agent_status"):
         return err
     db = await store()
     owned = await db.for_npub(npub)
-    kept = await db.kept_symbols(npub)
+    kept = await db.kept_captures(npub)
     return {
         "displays": [
             {"label": a.label, "agent_id": a.agent_id, "connected": a.connected(),
-             "kept": [{"symbol": key, "name": agents.symbol_name(key), "taken_at": _iso(taken)}
-                      for key, taken in kept.get(a.agent_id, [])]}
+             "kept": [_kept_symbol(k) for k in kept.get(a.agent_id, [])]}
             for a in owned
         ],
     }
+
+
+def _kept_symbol(k: KeptSymbol) -> dict[str, Any]:
+    """One kept symbol as a caller sees it: its captures, and its newest's scale."""
+    newest = k.captures[0]
+    entry: dict[str, Any] = {"symbol": k.symbol, "name": agents.symbol_name(k.symbol),
+                             "taken_at": _iso(newest.taken)}
+    if newest.scale:
+        entry["scale"] = newest.scale
+    entry["captures"] = [{"id": c.capture, "taken_at": _iso(c.taken)} | (
+        {"scale": c.scale} if c.scale else {}) for c in k.captures]
+    return entry
 
 
 @tool
@@ -340,7 +352,8 @@ def _summary(display: str, taken: datetime, symbol: str | None, scale: str | Non
 
 
 def _picture(agent: agents.Agent, jpeg: bytes, taken: datetime,
-             symbol: str | None = None, scale: str | None = None) -> ToolResult:
+             symbol: str | None = None, scale: str | None = None,
+             capture: str | None = None) -> ToolResult:
     """One picture of a display: a one-line text summary, the image, and its facts.
 
     The text comes first and stands alone. Images are the first thing a
@@ -353,6 +366,8 @@ def _picture(agent: agents.Agent, jpeg: bytes, taken: datetime,
         facts |= {"symbol": symbol, "name": agents.symbol_name(symbol)}
     if scale:
         facts["scale"] = scale
+    if capture:
+        facts["capture"] = capture
     return ToolResult(
         content=[TextContent(type="text", text=_summary(agent.label, taken, symbol, scale)),
                  Image(data=jpeg, format="jpeg").to_image_content()],
@@ -425,14 +440,46 @@ async def snapshot_display(
 ) -> ToolResult | dict[str, Any]:
     """Take a picture of what one of your displays is showing, right now.
 
-    Nothing is kept: the picture exists only in this reply. A display that
-    is offline, or that cannot capture its chart, costs nothing.
+    The picture is also kept, sealed, as a new capture of the symbol the
+    display is showing, beside the ones it keeps after each chart change. A
+    display that is offline, or that cannot capture its chart, costs nothing.
 
     Args:
         display: Which display, when several are paired.
     """
     agent, reply = await _relay(npub, display, "snapshot")
-    return _picture(agent, snapshot.parse(reply), datetime.now(UTC))
+    jpeg = snapshot.parse(reply)
+    taken = datetime.now(UTC)
+    symbol, scale, capture = await _keep_live(agent, reply)
+    return _picture(agent, jpeg, taken, symbol, scale, capture)
+
+
+#: How long a live picture waits to learn which symbol it shows. Short: the
+#: picture is already in hand, and not knowing only files it as "Chart".
+LABEL_TIMEOUT_SECONDS = 10
+
+
+async def _keep_live(agent: agents.Agent,
+                     image: str) -> tuple[str | None, str | None, str | None]:
+    """Keep a live picture as a capture; returns (symbol, scale, capture id).
+
+    The symbol comes from asking the display what it shows ("PLTR at half");
+    a reply that is not that shape files the picture as "Chart". Keeping is
+    a courtesy on top of the picture already paid for, so any failure here
+    - no cipher, a display that goes quiet - keeps nothing and costs nothing
+    extra; the picture is still returned.
+    """
+    db = await store()
+    try:
+        said = await db.send(agent.agent_id, "read", timeout=LABEL_TIMEOUT_SECONDS)
+    except (TimeoutError, RuntimeError):
+        said = ""
+    symbol, scale = agents.read_label(said)
+    try:
+        capture = await db.keep_capture(agent.agent_id, image, symbol, scale)
+    except (RuntimeError, ValueError):
+        return None, None, None
+    return symbol, scale, capture
 
 
 @tool
@@ -440,19 +487,22 @@ async def snapshot_display(
 async def latest_snapshot(
     display: str = "",
     symbol: str = "",
+    capture: str = "",
     npub: NPUB_FIELD = "",
     dpop_token: str = "",
 ) -> ToolResult | dict[str, Any]:
-    """Show a picture a display took after its chart changed.
+    """Show a picture a display kept.
 
-    A display keeps the newest picture of each of its last 12 symbols,
-    encrypted, each for an hour. None kept - or one older than that - costs
+    A display keeps the newest 6 captures of each of its last 12 symbols,
+    encrypted, each for two hours. None kept - or one older than that - costs
     nothing.
 
     Args:
         display: Which display, when several are paired.
-        symbol: Which symbol's picture, e.g. "PLTR" (any case). Omit for the
-            display's newest picture of any symbol.
+        symbol: Which symbol's newest capture, e.g. "PLTR" (any case). Omit
+            for the display's newest capture of any symbol.
+        capture: One capture exactly, by the ``id`` chart_agent_status lists.
+            Takes precedence over ``symbol`` alone.
     """
     db = await store()
     try:
@@ -460,12 +510,15 @@ async def latest_snapshot(
     except LookupError as exc:
         raise ValueError(str(exc)) from None
     wanted = agents.symbol_key(symbol) if symbol.strip() else None
-    kept = await db.latest(agent.agent_id, wanted)
+    exact = agents.capture_key(capture) if capture.strip() else None
+    kept = await db.latest(agent.agent_id, wanted, exact)
     if kept is None:
-        what = f"no picture of {agents.symbol_name(wanted)}" if wanted else "no picture"
-        raise ValueError(f"{agent.label} has {what} from the last hour")
+        what = ("no such capture" if exact
+                else f"no picture of {agents.symbol_name(wanted)}" if wanted else "no picture")
+        raise ValueError(f"{agent.label} has {what} from the last {agents.CAPTURE_TTL_WORDS}")
     return _picture(agent, snapshot.parse(kept.data_url),
-                    datetime.fromtimestamp(kept.taken, UTC), kept.symbol, kept.scale)
+                    datetime.fromtimestamp(kept.taken, UTC), kept.symbol, kept.scale,
+                    kept.capture)
 
 
 # ---------------------------------------------------------------------------
@@ -512,8 +565,8 @@ async def agent_poll(request: Request) -> JSONResponse:
 async def agent_snapshot(request: Request) -> JSONResponse:
     """An agent's picture of its chart, taken just after the chart changed.
 
-    Checked like any reply from a patron's machine, then kept sealed as that
-    display's latest of the symbol it names (``symbol``, optional: without
+    Checked like any reply from a patron's machine, then kept sealed as a
+    new capture of the symbol it names (``symbol``, optional: without
     one it is kept as a plain "Chart"), with the scale it states (``scale``,
     optional; dropped when not scale-shaped). Nothing is stored when it
     cannot be encrypted.
@@ -530,7 +583,7 @@ async def agent_snapshot(request: Request) -> JSONResponse:
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
     try:
-        await db.keep_latest(agent.agent_id, image, key, agents.scale_label(body.get("scale")))
+        await db.keep_capture(agent.agent_id, image, key, agents.scale_label(body.get("scale")))
     except RuntimeError:
         return JSONResponse({"error": "pictures cannot be stored right now"}, status_code=503)
     return JSONResponse({"kept": True})

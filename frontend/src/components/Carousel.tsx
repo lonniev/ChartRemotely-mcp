@@ -1,19 +1,50 @@
 /**
- * A Material 3 style carousel: large rounded slides that snap to centre, with
- * the neighbours peeking in smaller at the edges.
+ * A Material 3 style carousel: rounded slides that snap to centre, with the
+ * neighbours peeking in smaller at the edges.
  *
  * Built on CSS scroll-snap, so swipe, trackpad and wheel scrolling come from
- * the browser. Arrow keys and the dots move one slide at a time.
+ * the browser. Arrow keys and the dots move one slide at a time, and a tap on
+ * a neighbour brings it to the centre rather than acting on it.
+ *
+ * ``onSettle`` hears which slide is centred once scrolling has stopped - not
+ * every slide a swipe passes over - so a caller can load what is in view and
+ * nothing it flew past. ``index`` moves the carousel from outside, e.g. to
+ * keep the same item centred when the list reorders under it.
  */
 
 import { Children, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { wrapIndex } from "../lib/screens";
 
-export default function Carousel({ children, label }: { children: ReactNode; label: string }) {
+/** How long scrolling must pause before the centred slide counts as chosen. */
+const SETTLE_MS = 220;
+
+const SIZES = {
+  /** One big slide: a picture. */
+  wide: { slide: "w-[82cqw] md:w-[62cqw]", track: "px-[9cqw] md:px-[19cqw]" },
+  /** Several small cards in view at once: a symbol. */
+  card: { slide: "w-[40cqw] md:w-[22cqw]", track: "px-[30cqw] md:px-[39cqw]" },
+} as const;
+
+interface Props {
+  children: ReactNode;
+  label: string;
+  /** What one slide is, for the buttons' names: "screen", "symbol", "capture". */
+  itemName?: string;
+  size?: keyof typeof SIZES;
+  index?: number;
+  onSettle?: (index: number) => void;
+}
+
+export default function Carousel({ children, label, itemName = "screen", size = "wide", index, onSettle }: Props) {
   const slides = Children.toArray(children);
   const track = useRef<HTMLDivElement | null>(null);
   const [active, setActive] = useState(0);
+  const activeRef = useRef(0);
+  const settleRef = useRef(onSettle);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  settleRef.current = onSettle;
+  const sized = SIZES[size];
 
   // The slide whose centre is nearest the track's centre is the active one.
   // Measured on scroll rather than by an intersection threshold, which marks
@@ -32,18 +63,32 @@ export default function Carousel({ children, label }: { children: ReactNode; lab
         best = Number(s.dataset.index);
       }
     });
+    activeRef.current = best;
     setActive(best);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => settleRef.current?.(activeRef.current), SETTLE_MS);
   }, []);
 
   useEffect(measure, [measure, slides.length]);
+  useEffect(() => () => clearTimeout(timer.current), []);
 
   const goTo = useCallback(
-    (i: number) => {
+    (i: number, behavior: ScrollBehavior = "smooth") => {
       const el = track.current?.querySelector<HTMLElement>(`[data-index="${wrapIndex(i, slides.length)}"]`);
-      el?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+      const box = track.current;
+      if (!el || !box) return;
+      // Scroll the track only - scrollIntoView would also move the page.
+      const left = el.offsetLeft - (box.clientWidth - el.offsetWidth) / 2;
+      box.scrollTo({ left, behavior });
     },
     [slides.length],
   );
+
+  // Moved from outside: jump, so no slide in between is passed over.
+  useEffect(() => {
+    if (index === undefined || index === activeRef.current) return;
+    goTo(index, "instant");
+  }, [index, goTo]);
 
   return (
     <div
@@ -60,7 +105,7 @@ export default function Carousel({ children, label }: { children: ReactNode; lab
         ref={track}
         tabIndex={0}
         onScroll={measure}
-        className="no-scrollbar flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth px-[9cqw] py-2 outline-none md:px-[19cqw]"
+        className={`no-scrollbar relative flex snap-x snap-mandatory gap-3 overflow-x-auto py-2 outline-none ${sized.track}`}
       >
         {slides.map((slide, i) => (
           <div
@@ -69,7 +114,13 @@ export default function Carousel({ children, label }: { children: ReactNode; lab
             role="group"
             aria-roledescription="slide"
             aria-label={`${i + 1} of ${slides.length}`}
-            className={`w-[82cqw] flex-none snap-center transition-[transform,opacity] duration-300 md:w-[62cqw] ${
+            onClickCapture={(e) => {
+              if (i === active) return;
+              e.preventDefault();
+              e.stopPropagation();
+              goTo(i);
+            }}
+            className={`flex-none snap-center transition-[transform,opacity] duration-300 ${sized.slide} ${
               i === active ? "scale-100 opacity-100" : "scale-[0.92] opacity-60"
             }`}
           >
@@ -83,31 +134,36 @@ export default function Carousel({ children, label }: { children: ReactNode; lab
           <button
             type="button"
             onClick={() => goTo(active - 1)}
-            aria-label="Previous screen"
-            className="absolute left-2 top-1/2 hidden -translate-y-1/2 rounded-full bg-[var(--tb-surface-2)]/90 p-2 md:block"
+            aria-label={`Previous ${itemName}`}
+            className="absolute left-2 top-1/2 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--tb-surface-2)]/90 md:flex"
           >
             <ChevronLeft size={20} />
           </button>
           <button
             type="button"
             onClick={() => goTo(active + 1)}
-            aria-label="Next screen"
-            className="absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-full bg-[var(--tb-surface-2)]/90 p-2 md:block"
+            aria-label={`Next ${itemName}`}
+            className="absolute right-2 top-1/2 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--tb-surface-2)]/90 md:flex"
           >
             <ChevronRight size={20} />
           </button>
-          <div className="mt-3 flex justify-center gap-2">
+          <div className="mt-2 flex justify-center">
             {slides.map((_, i) => (
+              // The dot is small; the button around it is a full-size target.
               <button
                 key={i}
                 type="button"
                 onClick={() => goTo(i)}
-                aria-label={`Go to screen ${i + 1}`}
+                aria-label={`Go to ${itemName} ${i + 1}`}
                 aria-current={i === active}
-                className={`h-2 rounded-full transition-all ${
-                  i === active ? "w-6 bg-[var(--tb-accent)]" : "w-2 bg-[var(--tb-line)]"
-                }`}
-              />
+                className="flex h-10 min-w-7 items-center justify-center"
+              >
+                <span
+                  className={`h-2 rounded-full transition-all ${
+                    i === active ? "w-6 bg-[var(--tb-accent)]" : "w-2 bg-[var(--tb-line)]"
+                  }`}
+                />
+              </button>
             ))}
           </div>
         </>

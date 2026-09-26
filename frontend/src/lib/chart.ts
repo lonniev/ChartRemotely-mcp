@@ -5,21 +5,31 @@
 
 import { callTool, callToolWithContent } from "@tollbooth-dpyc/web";
 
-/** One picture a display kept after its chart changed: the newest of that symbol. */
-export interface KeptPicture {
-  /** The key to ask for it by. */
-  symbol: string;
-  /** How to show it: the ticker, or "Chart" when the agent could not read one. */
-  name: string;
+/** One kept capture of a symbol, as status lists it. */
+export interface KeptCapture {
+  /** The id to ask for it by. */
+  id: string;
   taken_at: string;
+  scale?: string;
+}
+
+/** A symbol a display kept captures of: its newest first. */
+export interface KeptSymbol {
+  /** The key the display keeps it under ("-" when the agent could not read one). */
+  symbol: string;
+  /** How to show it: the ticker, or "Chart". */
+  name: string;
+  /** When its newest capture was taken. */
+  taken_at: string;
+  captures: KeptCapture[];
 }
 
 export interface Display {
   label: string;
   agent_id: string;
   connected: boolean;
-  /** Pictures kept within the hour, one per symbol, newest first. */
-  kept?: KeptPicture[];
+  /** Symbols with captures from the last two hours, most recently captured first. */
+  kept?: KeptSymbol[];
 }
 
 interface Failure {
@@ -60,27 +70,30 @@ export interface Snapshot {
   /** A data: URL the page can put straight into an <img>. */
   src: string;
   takenAt: string;
-  /** Set on a kept picture: which symbol it shows. */
+  /** Which symbol it shows, when known. */
   symbol?: string;
   name?: string;
+  scale?: string;
+  /** The capture it was kept as, when it was kept. */
+  capture?: string;
 }
 
-/** Metered. Costs nothing when the display is offline or cannot capture. */
+/**
+ * Metered. Costs nothing when the display is offline or cannot capture. The
+ * picture is also kept, as a new capture of the symbol on screen.
+ */
 export function takeSnapshot(agentId: string): Promise<Snapshot> {
   return picture("snapshot_display", { display: agentId });
 }
 
-/**
- * Metered. A picture the display kept after its chart changed — that symbol's,
- * or the newest of any when no symbol is given. Nothing kept costs nothing.
- */
-export function takeLatest(agentId: string, symbol = ""): Promise<Snapshot> {
-  return picture("latest_snapshot", symbol ? { display: agentId, symbol } : { display: agentId });
+/** Metered. One kept capture, exactly. One gone past its two hours costs nothing. */
+export function takeCapture(agentId: string, capture: string): Promise<Snapshot> {
+  return picture("latest_snapshot", { display: agentId, capture });
 }
 
 async function picture(tool: string, args: Record<string, string>): Promise<Snapshot> {
   const { data, images } = await callToolWithContent<
-    { taken_at?: string; symbol?: string; name?: string } & Failure
+    { taken_at?: string; symbol?: string; name?: string; scale?: string; capture?: string } & Failure
   >(tool, args, { timeoutMs: 60_000 });
   const err = failed(data);
   if (err) throw new Error(err);
@@ -91,6 +104,8 @@ async function picture(tool: string, args: Record<string, string>): Promise<Snap
     takenAt: data.taken_at ?? new Date().toISOString(),
     symbol: data.symbol,
     name: data.name,
+    scale: data.scale,
+    capture: data.capture,
   };
 }
 

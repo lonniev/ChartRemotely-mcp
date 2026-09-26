@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Kept pictures are now a short history per symbol: the newest 6 captures of each of a display's last 12 symbols, each kept for two hours (was one picture per symbol for an hour). New table `chart_captures` keyed `(agent_id, capture_id)`; the AAD binds agent, symbol and capture id. `chart_pictures` is dropped, not copied - its rows were sealed without a capture id and gone within the hour anyway. Idempotent.
+- `chart_agent_status` lists each kept symbol with its `captures: [{id, taken_at, scale?}]`, newest first; symbols are ordered by their newest capture.
+- `chart_latest_snapshot` takes `capture` (a 16-hex-digit id from status) to show one capture exactly; same tool, same price. A malformed id is refused before any lookup and costs nothing.
+- `chart_snapshot_display` now keeps its picture as a capture, filed under the symbol the display reports with `read` ("Chart" when it will not say). Keeping is best effort: a picture that cannot be sealed is still returned, and still costs one fare.
+- Web app: My Screens browses by symbol, then by capture - a symbol carousel merged across displays, and within a symbol a carousel of its captures, each picture fetched only when its slide is in view. Before anything is kept, ghosted example cards show the idea.
+
 ### Added
 - Picture replies (`snapshot_display`, `latest_snapshot`) now carry a one-line text summary before the image - display, symbol, scale and capture time, leaving out whatever is unknown - so the facts survive a client dropping images when it compacts, and reach a client that cannot render images at all. Same tools, same price; `structured_content` gains `scale`.
 - A kept picture remembers the scale its display stated (new nullable `scale` column on `chart_pictures`, added idempotently). `/agent/snapshot` accepts an optional `scale`; one that is not a short printable label (24 characters at most) is dropped and the picture kept.

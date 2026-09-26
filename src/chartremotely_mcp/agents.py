@@ -30,10 +30,15 @@ COMMAND_TIMEOUT_SECONDS = 45
 #: How long a command forwarded from one display to another may take. Shorter
 #: than a relayed tool call's, because a Siri Shortcut is waiting on it.
 FORWARD_TIMEOUT_SECONDS = 25
-#: How long a display's latest picture is kept for anyone to look at.
-LATEST_TTL_SECONDS = 60 * 60
-#: How many symbols' pictures a display keeps; the oldest beyond this go.
-LATEST_KEEP = 12
+#: How long a kept capture lives. Two hours, so a few looks at one symbol
+#: have time to gather into a small set before the first of them goes.
+CAPTURE_TTL_SECONDS = 2 * 60 * 60
+#: The same span in words, for replies and docs.
+CAPTURE_TTL_WORDS = "two hours"
+#: How many symbols a display keeps captures of; the one idle longest goes.
+SYMBOLS_KEPT = 12
+#: How many captures of one symbol a display keeps; the oldest goes.
+CAPTURES_PER_SYMBOL = 6
 #: The key a picture is kept under when the agent could not read the symbol.
 #: A lone hyphen is inside the symbol charset but is nobody's ticker, so it
 #: needs no special case in validation, and shows to people as "Chart".
@@ -77,6 +82,45 @@ def scale_label(raw: object) -> str | None:
         return None
     label = " ".join(raw.split())
     return label if _SCALE.match(label) else None
+
+
+#: A capture's id: 16 lower-case hex digits, minted here and nowhere else.
+#: It is bound into the capture's AAD and handed back by callers, so nothing
+#: of any other shape is ever looked up.
+_CAPTURE_ID = re.compile(r"^[0-9a-f]{16}$")
+
+
+def new_capture_id() -> str:
+    return secrets.token_hex(8)
+
+
+def capture_key(raw: object) -> str:
+    """A capture id as asked for: trimmed. Raises ValueError for anything else."""
+    key = raw.strip() if isinstance(raw, str) else None
+    if key is None or not _CAPTURE_ID.match(key):
+        raise ValueError("that is not a capture id")
+    return key
+
+
+#: The display's own answer to "read": "PLTR at half".
+_READ_REPLY = re.compile(r"^(\S{1,15}) at (.{1,24})$")
+
+
+def read_label(reply: object) -> tuple[str, str | None]:
+    """(symbol key, scale) from a display's "read" reply.
+
+    Anything that is not that shape, or names something that is not a
+    symbol, reads as unlabelled - a label is only a label, never worth
+    losing the picture over.
+    """
+    text = reply.strip() if isinstance(reply, str) else ""
+    m = None if text.startswith("ERR") else _READ_REPLY.match(text)
+    if not m:
+        return UNLABELLED, None
+    try:
+        return symbol_key(m.group(1)), scale_label(m.group(2))
+    except ValueError:
+        return UNLABELLED, None
 
 
 def symbol_name(key: str) -> str:

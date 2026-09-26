@@ -58,16 +58,5 @@ export function wrapIndex(i: number, n: number): number {
   return n === 0 ? 0 : ((i % n) + n) % n;
 }
 
-/**
- * Whether a display has kept a picture newer than the one on screen — the cue
- * to offer "Changed · tap to view". Nothing shown yet counts as older.
- */
-export function hasNewer(latestAt: string | null | undefined, shownAt: string | undefined): boolean {
-  if (!latestAt) return false;
-  const kept = Date.parse(latestAt);
-  if (Number.isNaN(kept)) return false;
-  return !shownAt || kept > Date.parse(shownAt);
-}
-
 /** How a picture's time reads on a chip or a cue: "10:42 AM" in the chosen zone. */
 export const CLOCK: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };
