@@ -49,7 +49,7 @@ const DAY: { icon: LucideIcon; when: string; text: string }[] = [
 const PIECES: { icon: LucideIcon; title: string; text: string }[] = [
   { icon: Mic, title: "Your voice", text: "A Siri Shortcut on iPhone, iPad or Apple Watch." },
   { icon: Bot, title: "Your agent", text: "Any MCP client drives the same screens: show a chart, read it, take its picture." },
-  { icon: Camera, title: "Your screens", text: "Every chart change leaves a fresh picture here for an hour, one tap to view." },
+  { icon: Camera, title: "Your screens", text: "Every chart change leaves a fresh picture here, gathered by symbol, for two hours." },
   { icon: Zap, title: "Pay per request", text: "A prepaid Bitcoin Lightning balance, and a Nostr key for sign-in." },
 ];
 

@@ -40,16 +40,21 @@ cd frontend && npm install && npm run dev   # tests run as part of npm run build
 | `forget_display` | free | Removes a display and the secret it signed in with |
 | `show_chart` | metered | Put a security on a paired display |
 | `read_chart` | metered | What a display is currently showing |
-| `snapshot_display` | metered | A JPEG of the display's chart window, right now |
+| `snapshot_display` | metered | A JPEG of the display's chart window, right now - also kept as a capture |
+| `latest_snapshot` | metered | A kept capture: the newest, a symbol's newest, or one by `capture` id |
 
 Every tool that takes an npub needs a proof of that npub (`request_npub_proof`,
 then `receive_npub_proof`); `get_shortcut` hands out a public file and does not.
 
 A metered call to a display that never answers - offline, or not running the
 agent - is refunded, and so is one naming a display you do not have.
-`snapshot_display` keeps nothing: the picture exists only in the reply, so a
-remote command you cannot see is no longer indistinguishable from one that
-silently failed.
+A display keeps captures by symbol: the newest 6 of each of its last 12
+symbols, sealed with the vault cipher, each for two hours. One lands after
+every chart change the agent pushes, and one with every `snapshot_display`
+(filed under the symbol the display says it shows, or "Chart"). The AAD binds
+each capture to its display, its symbol and its capture id. `agent_status`
+lists them per display - symbols by newest capture, each with its `captures`
+newest first - and `latest_snapshot(capture=...)` shows one exactly.
 
 A picture reply leads with one line of text naming what is known about it -
 display, symbol, scale, capture time, e.g. `Mac mini · PLTR · half · captured

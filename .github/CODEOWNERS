@@ -21,7 +21,7 @@
 # - the proof gates (runtime.require_caller_proof on pair_agent, agent_status,
 #   forget_display) — dropping one lets anyone who knows an npub see or remove its displays;
 # - snapshot.parse, the untrusted-input check on everything an agent sends back;
-# - store.keep_latest, which must refuse to store a picture it cannot encrypt, and its AAD
-#   binding a picture to its display;
+# - store.keep_capture, which must refuse to store a picture it cannot encrypt, and its AAD
+#   binding a capture to its display, its symbol and its capture id;
 # - agent secrets living only in the patron credential vault, never in a column;
 # - forget_display's cascade, which must leave nothing of a forgotten display behind.
