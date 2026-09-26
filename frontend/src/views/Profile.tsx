@@ -1,16 +1,14 @@
 /**
  * Who you are, what you can spend and have spent, which screens are yours, the
- * clock your pictures are stamped in, and what is running.
+ * clock your pictures are stamped in, and what is running — the shared
+ * AccountPage, with the wallet, screens and Siri Shortcut in its slots.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { Check, Link2, LogOut, Mic, MonitorOff, MonitorPlay, Trash2, X } from "lucide-react";
 import { ProofRequiredError } from "@tollbooth-dpyc/web";
 import {
-  BuildInfoPanel,
-  NostrProfilePanel,
-  TimezonePicker,
-  UsageSummary,
+  AccountPage,
   WalletCard,
   type BuildInfoPanelClassNames,
   type Session,
@@ -56,40 +54,54 @@ const buildStyles: BuildInfoPanelClassNames = {
 
 export default function Profile({ session }: { session: Session }) {
   return (
-    <div className="mx-auto max-w-lg space-y-4 px-4 py-6">
-      <NostrProfilePanel npub={session.npub} />
-      <WalletCard />
-      <UsageSummary classNames={usageStyles} />
-      <Displays />
-      <Voice />
-      <section className={card}>
-        <TimezonePicker
-          label="Time zone"
-          classNames={{
-            root: "flex flex-col gap-2",
-            label: heading,
-            select: `${field} w-full bg-[var(--tb-surface)]`,
-          }}
-        />
-        <p className="mt-2 text-xs text-[var(--tb-muted)]">When your pictures were taken, in this zone.</p>
-      </section>
-      <BuildInfoPanel
-        frontend={{ version: __APP_VERSION__, source: "https://github.com/lonniev/ChartRemotely-mcp" }}
-        classNames={buildStyles}
-      />
-      <div className="flex items-center gap-3 px-1 pb-4">
-        <span className="min-w-0 flex-1 text-[11px] text-[var(--tb-muted)]">
+    <AccountPage
+      npub={session.npub}
+      heading={null}
+      between={{
+        profile: <WalletCard />,
+        usage: (
+          <>
+            <Displays />
+            <Voice />
+          </>
+        ),
+      }}
+      usage={{ classNames: usageStyles }}
+      timezone={{
+        heading: null,
+        label: "Time zone",
+        note: () => "When your pictures were taken, in this zone.",
+        classNames: {
+          root: "flex flex-col gap-2",
+          label: heading,
+          select: `${field} w-full bg-[var(--tb-surface)]`,
+        },
+      }}
+      theme={false}
+      coupons={false}
+      build={{
+        frontend: { version: __APP_VERSION__, source: "https://github.com/lonniev/ChartRemotely-mcp" },
+        classNames: buildStyles,
+      }}
+      after={
+        <p className="px-1 text-[11px] text-[var(--tb-muted)]">
           {session.canSign ? "Signing with a key held in this tab." : "Signed in on a cached proof, which expires."}
-        </span>
-        <button
-          type="button"
-          onClick={session.signOut}
-          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--tb-line)] px-3 py-1.5 text-xs"
-        >
+        </p>
+      }
+      onSignOut={session.signOut}
+      signOutLabel={
+        <>
           <LogOut size={14} /> Sign out
-        </button>
-      </div>
-    </div>
+        </>
+      }
+      classNames={{
+        root: "mx-auto max-w-lg space-y-4 px-4 py-6",
+        section: card,
+        sectionNote: "mt-2 text-xs text-[var(--tb-muted)]",
+        actions: "flex justify-end px-1 pb-4",
+        signOut: "inline-flex items-center gap-1.5 rounded-full border border-[var(--tb-line)] px-3 py-1.5 text-xs",
+      }}
+    />
   );
 }
 
