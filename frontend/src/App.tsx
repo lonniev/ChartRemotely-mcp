@@ -10,6 +10,9 @@ import SaveKey from "./views/SaveKey";
 import Start from "./views/Start";
 import Welcome from "./views/Welcome";
 
+/** The site's own words above the sign-in card. */
+const WELCOME = "Say it here. See it there. Put a security on a desktop chart anywhere in the world, by voice or by tool call.";
+
 export default function App() {
   const session = useSession();
   const view = useView();
@@ -78,6 +81,8 @@ export default function App() {
         {view === "save-key" && <SaveKey session={session} />}
         {view === "signin" && (
           <NpubGate
+            welcome={WELCOME}
+            linksCredit={false}
             notice={session.notice || undefined}
             onLogin={() => {
               session.refresh();
