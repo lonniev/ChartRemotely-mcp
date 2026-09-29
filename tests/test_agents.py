@@ -327,42 +327,42 @@ async def test_one_symbols_captures_never_crowd_out_anothers():
     assert kept["NVDA"] == [nvda] and len(kept["PLTR"]) == 6
 
 
-async def test_a_thirteenth_symbol_drops_the_symbol_idle_longest_with_all_its_captures():
+async def test_a_twenty_first_symbol_drops_the_symbol_idle_longest_with_all_its_captures():
     s, neon = await live_store()
     await keep(s, neon, "OLD", 3)
-    for i in range(11):
+    for i in range(19):
         await keep(s, neon, f"S{i}")
     await keep(s, neon, "OLD")      # OLD is fresh again: S0 is now idle longest
-    await keep(s, neon, "NEW")      # the thirteenth symbol
+    await keep(s, neon, "NEW")      # the twenty-first symbol
     symbols = [k.symbol for k in (await s.kept_captures("npub1x"))["a1"]]
-    assert len(symbols) == 12 and "S0" not in symbols
+    assert len(symbols) == 20 and "S0" not in symbols
     assert symbols[:2] == ["NEW", "OLD"], "by newest activity"
     assert not [r for r in neon.rows("chart_captures") if r["symbol"] == "S0"]
-    assert agents.SYMBOLS_KEPT == 12
+    assert agents.SYMBOLS_KEPT == 20
 
 
 async def test_the_caps_only_ever_trim_this_displays_rows():
     s, neon = await live_store()
     await neon._execute("INSERT INTO op.chart_agents (agent_id, npub, label) VALUES ('b2', 'npub1x', 'wall')")
-    for i in range(13):
+    for i in range(21):
         neon.clock += 1
         await s.keep_capture("b2", PICTURE, f"B{i}")
     await keep(s, neon, "PLTR", 7)
-    assert len([r for r in neon.rows("chart_captures") if r["agent_id"] == "b2"]) == 12
+    assert len([r for r in neon.rows("chart_captures") if r["agent_id"] == "b2"]) == 20
     assert len([r for r in neon.rows("chart_captures") if r["agent_id"] == "a1"]) == 6
 
 
-async def test_captures_live_two_hours_then_are_neither_listed_nor_shown():
+async def test_captures_live_four_hours_then_are_neither_listed_nor_shown():
     s, neon = await live_store()
     [cid] = await keep(s, neon, "PLTR")
-    neon.clock += 2 * 60 * 60 - 1
+    neon.clock += 4 * 60 * 60 - 1
     assert (await s.latest("a1", capture=cid)).capture == cid
     assert (await s.kept_captures("npub1x"))["a1"][0].symbol == "PLTR"
     neon.clock += 1
     assert await s.kept_captures("npub1x") == {}
     assert await s.latest("a1", capture=cid) is None
     assert neon.rows("chart_captures") == [], "swept, not just hidden"
-    assert agents.CAPTURE_TTL_SECONDS == 2 * 60 * 60
+    assert agents.CAPTURE_TTL_SECONDS == 4 * 60 * 60
 
 
 async def test_a_capture_opens_only_under_its_own_capture_id():

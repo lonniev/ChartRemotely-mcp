@@ -61,8 +61,8 @@ mcp = FastMCP(
         "chart_snapshot_display returns a picture of what a display shows, "
         "and keeps it; chart_latest_snapshot shows one a display kept — the "
         "newest, a given symbol's newest, or one capture by its id. A display "
-        "keeps the newest 6 captures of each of its last 12 symbols, "
-        "encrypted, each for two hours; chart_agent_status lists them.\n"
+        "keeps the newest 6 captures of each of its last 20 symbols, "
+        "encrypted, each for four hours; chart_agent_status lists them.\n"
         "The web app at https://chartremotely.tollbooth-dpyc.com does all of "
         "this from a browser.\n\n"
         "## Pricing\n"
@@ -493,8 +493,8 @@ async def latest_snapshot(
 ) -> ToolResult | dict[str, Any]:
     """Show a picture a display kept.
 
-    A display keeps the newest 6 captures of each of its last 12 symbols,
-    encrypted, each for two hours. None kept - or one older than that - costs
+    A display keeps the newest 6 captures of each of its last 20 symbols,
+    encrypted, each for four hours. None kept - or one older than that - costs
     nothing.
 
     Args:
