@@ -9,7 +9,12 @@
  * ``onSettle`` hears which slide is centred once scrolling has stopped - not
  * every slide a swipe passes over - so a caller can load what is in view and
  * nothing it flew past. ``index`` moves the carousel from outside, e.g. to
- * keep the same item centred when the list reorders under it.
+ * keep the same item centred when the list reorders under it, and is stood on
+ * before the first measurement, so a carousel that mounts on its fifth slide
+ * never reports its first.
+ *
+ * The ``full`` size fills whatever holds it, one slide at a time: a picture
+ * full screen, swiped through with the same gesture as the page beneath.
  */
 
 import { Children, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -21,9 +26,11 @@ const SETTLE_MS = 220;
 
 const SIZES = {
   /** One big slide: a picture. */
-  wide: { slide: "w-[82cqw] md:w-[62cqw]", track: "px-[9cqw] md:px-[19cqw]" },
+  wide: { root: "", slide: "w-[82cqw] md:w-[62cqw]", track: "gap-3 py-2 px-[9cqw] md:px-[19cqw]" },
   /** Several small cards in view at once: a symbol. */
-  card: { slide: "w-[40cqw] md:w-[22cqw]", track: "px-[30cqw] md:px-[39cqw]" },
+  card: { root: "", slide: "w-[40cqw] md:w-[22cqw]", track: "gap-3 py-2 px-[30cqw] md:px-[39cqw]" },
+  /** The whole container, one slide at a time: a picture full screen. */
+  full: { root: "h-full min-h-0", slide: "h-full w-[100cqw]", track: "h-full" },
 } as const;
 
 interface Props {
@@ -34,9 +41,22 @@ interface Props {
   size?: keyof typeof SIZES;
   index?: number;
   onSettle?: (index: number) => void;
+  /** The dots under the track; off when there are too many slides to count. */
+  dots?: boolean;
+  /** Focus the track on mount, so arrow keys work at once (a dialog). */
+  autoFocus?: boolean;
 }
 
-export default function Carousel({ children, label, itemName = "screen", size = "wide", index, onSettle }: Props) {
+export default function Carousel({
+  children,
+  label,
+  itemName = "screen",
+  size = "wide",
+  index,
+  onSettle,
+  dots = true,
+  autoFocus = false,
+}: Props) {
   const slides = Children.toArray(children);
   const track = useRef<HTMLDivElement | null>(null);
   const [active, setActive] = useState(0);
@@ -69,7 +89,6 @@ export default function Carousel({ children, label, itemName = "screen", size = 
     timer.current = setTimeout(() => settleRef.current?.(activeRef.current), SETTLE_MS);
   }, []);
 
-  useEffect(measure, [measure, slides.length]);
   useEffect(() => () => clearTimeout(timer.current), []);
 
   const goTo = useCallback(
@@ -84,18 +103,25 @@ export default function Carousel({ children, label, itemName = "screen", size = 
     [slides.length],
   );
 
-  // Moved from outside: jump, so no slide in between is passed over.
+  // Moved from outside (or mounted on a slide): jump, so no slide in between
+  // is passed over, then measure at once. An instant scroll lands before the
+  // measurement reads the rects, so the slide reported is the one asked for,
+  // never a default first. Declared before the mount measurement below so it
+  // runs first.
   useEffect(() => {
     if (index === undefined || index === activeRef.current) return;
     goTo(index, "instant");
-  }, [index, goTo]);
+    measure();
+  }, [index, goTo, measure]);
+
+  useEffect(measure, [measure, slides.length]);
 
   return (
     <div
       role="region"
       aria-roledescription="carousel"
       aria-label={label}
-      className="@container relative"
+      className={`@container relative ${sized.root}`}
       onKeyDown={(e) => {
         if (e.key === "ArrowRight") goTo(active + 1);
         if (e.key === "ArrowLeft") goTo(active - 1);
@@ -104,8 +130,9 @@ export default function Carousel({ children, label, itemName = "screen", size = 
       <div
         ref={track}
         tabIndex={0}
+        autoFocus={autoFocus}
         onScroll={measure}
-        className={`no-scrollbar relative flex snap-x snap-mandatory gap-3 overflow-x-auto py-2 outline-none ${sized.track}`}
+        className={`no-scrollbar relative flex snap-x snap-mandatory overflow-x-auto outline-none ${sized.track}`}
       >
         {slides.map((slide, i) => (
           <div
@@ -147,6 +174,7 @@ export default function Carousel({ children, label, itemName = "screen", size = 
           >
             <ChevronRight size={20} />
           </button>
+          {dots && (
           <div className="mt-2 flex justify-center">
             {slides.map((_, i) => (
               // The dot is small; the button around it is a full-size target.
@@ -166,6 +194,7 @@ export default function Carousel({ children, label, itemName = "screen", size = 
               </button>
             ))}
           </div>
+          )}
         </>
       )}
     </div>

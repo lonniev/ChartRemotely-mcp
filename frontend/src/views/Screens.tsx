@@ -2,15 +2,18 @@
  * My Screens, browsed by symbol and then by capture.
  *
  * Every display keeps the newest few captures of each symbol it has shown,
- * for two hours. Here they are merged across the patron's displays: the top
+ * for four hours. Here they are merged across the patron's displays: the top
  * carousel is one card per symbol, most recent first; under it, the chosen
  * symbol's captures, newest first, each labelled with the display that took
- * it.
+ * it. Opened full screen, a picture sits in one long carousel of every kept
+ * capture - swipe on past a symbol's oldest and the next symbol's newest is
+ * there - and the page beneath follows, so closing lands where the eye left.
  *
  * Viewing a picture is a paid request, so a picture is fetched only when its
  * slide has come to rest in view - never the set, never a slide swiped past -
- * and is kept for the visit once fetched. The status list that says what
- * exists is free, and is re-read while the page is looked at.
+ * and is kept for the visit once fetched, whichever carousel asks. The status
+ * list that says what exists is free, and is re-read while the page is looked
+ * at.
  *
  * Before anything is kept, ghosted example cards show the shape of the thing,
  * because nobody wants what they have never seen.
@@ -18,7 +21,7 @@
 
 const STATUS_EVERY_MS = 30_000;
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Camera, ImageIcon, Loader2, Plus, RotateCw, X } from "lucide-react";
 import { ProofRequiredError, formatTime } from "@tollbooth-dpyc/web";
 import { QuoteScroller, useTimezone } from "@tollbooth-dpyc/web/react";
@@ -28,6 +31,7 @@ import { listDisplays, takeCapture, takeSnapshot, type Display, type Snapshot } 
 import {
   EXAMPLE_SYMBOLS,
   captureCount,
+  flattenCaptures,
   groupBySymbol,
   indexOr0,
   type GalleryCapture,
@@ -49,7 +53,13 @@ interface Live {
   error?: string;
 }
 
-const SIRI_LINE = "Say “Hey Siri, ChartRemotely” and your charts gather here, by symbol, for two hours.";
+type Zoomed =
+  /** The kept captures, full screen; which one is the page's ``capture``. */
+  | { kind: "kept" }
+  /** A live picture the display could not keep: look now or never. */
+  | { kind: "live"; title: string; snap: Snapshot };
+
+const SIRI_LINE = "Say “Hey Siri, ChartRemotely” and your charts gather here, by symbol, for four hours.";
 
 export default function Screens() {
   const [displays, setDisplays] = useState<Display[] | null>(null);
@@ -61,7 +71,7 @@ export default function Screens() {
   const [live, setLive] = useState<Record<string, Live>>({});
   const [symbol, setSymbol] = useState<string | null>(null);
   const [capture, setCapture] = useState<string | null>(null);
-  const [zoomed, setZoomed] = useState<{ title: string; snap: Snapshot } | null>(null);
+  const [zoomed, setZoomed] = useState<Zoomed | null>(null);
   const [, tick] = useState(0);
   const [, zone] = useTimezone();
 
@@ -102,6 +112,9 @@ export default function Screens() {
   const groupAt = indexOr0(groups, (g) => g.symbol === symbol);
   const group: SymbolGroup | undefined = groups[groupAt];
   const captureAt = group ? indexOr0(group.captures, (c) => c.id === capture) : 0;
+  const flat = useMemo(() => flattenCaptures(groups), [groups]);
+  const flatAt = indexOr0(flat, (f) => f.id === capture);
+  const current = flat[flatAt];
 
   /** A kept capture's picture - once per visit, and only when asked for. */
   const view = useCallback(
@@ -129,7 +142,7 @@ export default function Screens() {
       setLive((l) => ({ ...l, [d.agent_id]: {} }));
       if (!snap.capture) {
         // Shown, but not kept (the display could not seal it): look now or never.
-        setZoomed({ title: names.get(d.agent_id) ?? d.label, snap });
+        setZoomed({ kind: "live", title: names.get(d.agent_id) ?? d.label, snap });
         return;
       }
       picsRef.current = { ...picsRef.current, [snap.capture]: { snap } };
@@ -207,7 +220,10 @@ export default function Screens() {
                   pic={pics[c.id]}
                   inView={i === captureAt && capture === c.id}
                   zone={zone}
-                  onOpen={(snap) => setZoomed({ title: `${group.name} · ${c.display}`, snap })}
+                  onOpen={() => {
+                    setCapture(c.id);
+                    setZoomed({ kind: "kept" });
+                  }}
                   onRetry={() => view(c, true)}
                 />
               ))}
@@ -225,29 +241,99 @@ export default function Screens() {
 
       <DisplayRow displays={paired} names={names} live={live} onShoot={(d) => void shoot(d)} />
 
-      {zoomed && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={zoomed.title}
-          className="fixed inset-0 z-50 flex flex-col bg-black"
-          onKeyDown={(e) => e.key === "Escape" && setZoomed(null)}
+      {zoomed?.kind === "kept" && current && (
+        <Lightbox
+          title={`${current.name} · ${captionOf(current, zone)}`}
+          count={`${flatAt + 1} of ${flat.length}`}
+          onClose={() => setZoomed(null)}
         >
-          <div className="flex items-center justify-between px-4 py-3 text-sm">
-            <span>{[zoomed.title, takenAgo(zoomed.snap.takenAt, zone)].filter(Boolean).join(" · ")}</span>
-            <button
-              type="button"
-              autoFocus
-              onClick={() => setZoomed(null)}
-              aria-label="Close"
-              className="flex h-10 w-10 items-center justify-center rounded-full"
-            >
-              <X size={22} />
-            </button>
-          </div>
-          <img src={zoomed.snap.src} alt={zoomed.title} className="min-h-0 flex-1 object-contain" />
-        </div>
+          <Carousel
+            label="Every capture, full screen"
+            itemName="capture"
+            size="full"
+            dots={false}
+            autoFocus
+            index={flatAt}
+            onSettle={(i) => {
+              const f = flat[i];
+              if (!f) return;
+              // The page beneath follows: its symbol, then (through view) its capture.
+              setSymbol(f.symbol);
+              view(f);
+            }}
+          >
+            {flat.map((f, i) => (
+              <div key={f.id} className="relative h-full bg-black">
+                <Picture
+                  pic={pics[f.id]}
+                  loading={i === flatAt && capture === f.id}
+                  alt={`${f.name} · ${captionOf(f, zone)}`}
+                  onRetry={() => view(f, true)}
+                />
+              </div>
+            ))}
+          </Carousel>
+        </Lightbox>
       )}
+
+      {zoomed?.kind === "live" && (
+        <Lightbox
+          title={[zoomed.title, takenAgo(zoomed.snap.takenAt, zone)].filter(Boolean).join(" · ")}
+          onClose={() => setZoomed(null)}
+          closeFocus
+        >
+          <img src={zoomed.snap.src} alt={zoomed.title} className="h-full w-full object-contain" />
+        </Lightbox>
+      )}
+    </div>
+  );
+}
+
+/** How a capture is captioned everywhere: display, time, scale - whatever is known. */
+function captionOf(c: GalleryCapture, zone: string): string {
+  return [c.display, formatTime(c.taken_at, zone, CLOCK), c.scale].filter(Boolean).join(" · ");
+}
+
+/**
+ * The full-screen frame: a title line, an optional count, a close button, and
+ * whatever fills the rest. Escape closes it from anywhere inside.
+ */
+function Lightbox({
+  title,
+  count,
+  onClose,
+  closeFocus = false,
+  children,
+}: {
+  title: string;
+  count?: string;
+  onClose: () => void;
+  /** Focus the close button rather than the content (a lone picture). */
+  closeFocus?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      className="fixed inset-0 z-50 flex flex-col bg-black"
+      onKeyDown={(e) => e.key === "Escape" && onClose()}
+    >
+      <div className="flex items-center gap-3 px-4 py-3 text-sm">
+        <span className="min-w-0 flex-1 truncate">{title}</span>
+        {count && <span className="flex-none text-[var(--tb-muted)]">{count}</span>}
+        <button
+          type="button"
+          autoFocus={closeFocus}
+          onClick={onClose}
+          aria-label="Close"
+          className="flex h-10 w-10 flex-none items-center justify-center rounded-full"
+        >
+          <X size={22} />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1">{children}</div>
     </div>
   );
 }
@@ -288,47 +374,76 @@ function CaptureSlide({
   pic?: Pic;
   inView: boolean;
   zone: string;
-  onOpen: (snap: Snapshot) => void;
+  onOpen: () => void;
   onRetry: () => void;
 }) {
-  const caption = [capture.display, formatTime(capture.taken_at, zone, CLOCK), capture.scale].filter(Boolean).join(" · ");
-  const loading = pic?.busy || (inView && !pic);
+  const caption = captionOf(capture, zone);
   return (
     <figure className="m-0 overflow-hidden rounded-[28px] border border-[var(--tb-line)] bg-[var(--tb-surface)]">
       {/* A fixed-ratio box, so nothing moves when the picture arrives. */}
       <div className="relative aspect-[16/10] bg-black">
-        {pic?.snap ? (
-          <button
-            type="button"
-            onClick={() => onOpen(pic.snap!)}
-            aria-label={`Open ${caption} full screen`}
-            className="block h-full w-full"
-          >
-            <img src={pic.snap.src} alt={caption} className="h-full w-full object-contain" />
-          </button>
-        ) : pic?.error ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm">
-            <span className="text-[var(--tb-err-ink)]">{pic.error}</span>
-            <button
-              type="button"
-              onClick={onRetry}
-              className="inline-flex min-h-10 items-center gap-2 rounded-full border border-[var(--tb-line)] px-4"
-            >
-              <RotateCw size={16} /> Try again
-            </button>
-          </div>
-        ) : loading ? (
-          <div className="absolute inset-0 flex items-center justify-center overflow-hidden bg-black/85">
-            <QuoteScroller quotes={TRADING_QUOTES} heading="Fetching your chart…" spinner classNames={pictureQuoteStyles} />
-          </div>
-        ) : (
-          <div className="flex h-full items-center justify-center text-[var(--tb-muted)]">
-            <ImageIcon size={36} aria-hidden="true" />
-          </div>
-        )}
+        <Picture pic={pic} loading={inView} alt={caption} onOpen={onOpen} onRetry={onRetry} />
       </div>
       <figcaption className="truncate px-5 py-3 text-sm text-[var(--tb-muted)]">{caption}</figcaption>
     </figure>
+  );
+}
+
+/**
+ * One capture's picture in whatever state it is in: shown (and, given
+ * ``onOpen``, a button that opens it full screen), failed with a retry, being
+ * fetched, or - when ``loading`` says its turn has not come - an empty frame.
+ * Fills the box it is given.
+ */
+function Picture({
+  pic,
+  loading,
+  alt,
+  onOpen,
+  onRetry,
+}: {
+  pic?: Pic;
+  /** This slide is the one in view, so a fetch is coming even before it starts. */
+  loading: boolean;
+  alt: string;
+  onOpen?: () => void;
+  onRetry: () => void;
+}) {
+  if (pic?.snap) {
+    const img = <img src={pic.snap.src} alt={alt} className="h-full w-full object-contain" />;
+    return onOpen ? (
+      <button type="button" onClick={onOpen} aria-label={`Open ${alt} full screen`} className="block h-full w-full">
+        {img}
+      </button>
+    ) : (
+      img
+    );
+  }
+  if (pic?.error) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm">
+        <span className="text-[var(--tb-err-ink)]">{pic.error}</span>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex min-h-10 items-center gap-2 rounded-full border border-[var(--tb-line)] px-4"
+        >
+          <RotateCw size={16} /> Try again
+        </button>
+      </div>
+    );
+  }
+  if (pic?.busy || loading) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center overflow-hidden bg-black/85">
+        <QuoteScroller quotes={TRADING_QUOTES} heading="Fetching your chart…" spinner classNames={pictureQuoteStyles} />
+      </div>
+    );
+  }
+  return (
+    <div className="flex h-full items-center justify-center text-[var(--tb-muted)]">
+      <ImageIcon size={36} aria-hidden="true" />
+    </div>
   );
 }
 

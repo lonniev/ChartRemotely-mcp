@@ -48,8 +48,8 @@ then `receive_npub_proof`); `get_shortcut` hands out a public file and does not.
 
 A metered call to a display that never answers - offline, or not running the
 agent - is refunded, and so is one naming a display you do not have.
-A display keeps captures by symbol: the newest 6 of each of its last 12
-symbols, sealed with the vault cipher, each for two hours. One lands after
+A display keeps captures by symbol: the newest 6 of each of its last 20
+symbols, sealed with the vault cipher, each for four hours. One lands after
 every chart change the agent pushes, and one with every `snapshot_display`
 (filed under the symbol the display says it shows, or "Chart"). The AAD binds
 each capture to its display, its symbol and its capture id. `agent_status`

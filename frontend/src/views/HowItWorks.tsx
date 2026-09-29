@@ -217,7 +217,7 @@ export default function HowItWorks() {
             <Wire label="to the operator" />
             <Service logo="prefect" name="Prefect Horizon" line="hosts the ChartRemotely MCP operator" />
             <Wire label="state" />
-            <Service logo="neon" name="Neon" line="Postgres: pairings, command queue, encrypted pictures for two hours" />
+            <Service logo="neon" name="Neon" line="Postgres: pairings, command queue, encrypted pictures for four hours" />
           </div>
         </Band>
       </section>

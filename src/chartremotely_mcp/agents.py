@@ -30,13 +30,13 @@ COMMAND_TIMEOUT_SECONDS = 45
 #: How long a command forwarded from one display to another may take. Shorter
 #: than a relayed tool call's, because a Siri Shortcut is waiting on it.
 FORWARD_TIMEOUT_SECONDS = 25
-#: How long a kept capture lives. Two hours, so a few looks at one symbol
-#: have time to gather into a small set before the first of them goes.
-CAPTURE_TTL_SECONDS = 2 * 60 * 60
+#: How long a kept capture lives. Four hours, so a morning's looks at one
+#: symbol have time to gather into a small set before the first of them goes.
+CAPTURE_TTL_SECONDS = 4 * 60 * 60
 #: The same span in words, for replies and docs.
-CAPTURE_TTL_WORDS = "two hours"
+CAPTURE_TTL_WORDS = "four hours"
 #: How many symbols a display keeps captures of; the one idle longest goes.
-SYMBOLS_KEPT = 12
+SYMBOLS_KEPT = 20
 #: How many captures of one symbol a display keeps; the oldest goes.
 CAPTURES_PER_SYMBOL = 6
 #: The key a picture is kept under when the agent could not read the symbol.

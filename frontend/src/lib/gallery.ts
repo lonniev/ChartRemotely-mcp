@@ -68,6 +68,21 @@ export function groupBySymbol(displays: DisplayWithKept[], names: Map<string, st
     .sort((a, b) => at(b.lastAt) - at(a.lastAt) || a.symbol.localeCompare(b.symbol));
 }
 
+/** One capture as the full-screen carousel walks it: it knows its symbol too. */
+export interface FlatCapture extends GalleryCapture {
+  symbol: string;
+  name: string;
+}
+
+/**
+ * Every capture in the order the page shows them: symbol by symbol, newest
+ * symbol first, each symbol's captures newest first. Swiping past a symbol's
+ * oldest capture lands on the next symbol's newest.
+ */
+export function flattenCaptures(groups: SymbolGroup[]): FlatCapture[] {
+  return groups.flatMap((g) => g.captures.map((c) => ({ ...c, symbol: g.symbol, name: g.name })));
+}
+
 /** Where a key sits in a list, or 0 when it is not there (the newest leads). */
 export function indexOr0<T>(items: T[], matches: (item: T) => boolean): number {
   const i = items.findIndex(matches);

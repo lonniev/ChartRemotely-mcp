@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { captureCount, groupBySymbol, indexOr0 } from "./gallery.ts";
+import { captureCount, flattenCaptures, groupBySymbol, indexOr0 } from "./gallery.ts";
 
 const cap = (id: string, minute: number, scale?: string) => ({
   id,
@@ -58,4 +58,21 @@ test("a remembered key is found again after a reorder, else the newest leads", (
 test("counts read naturally", () => {
   assert.equal(captureCount(1), "1 capture");
   assert.equal(captureCount(6), "6 captures");
+});
+
+test("full screen walks every capture symbol by symbol, each symbol newest first, and knows the symbol", () => {
+  const groups = groupBySymbol(
+    [
+      { agent_id: "a1", label: "desk", kept: [
+        { symbol: "NVDA", name: "NVDA", captures: [cap("n1", 40), cap("n2", 45)] },
+        { symbol: "-", name: "Chart", captures: [cap("c1", 1)] },
+      ] },
+    ],
+    names,
+  );
+  const flat = flattenCaptures(groups);
+  assert.deepEqual(flat.map((f) => [f.id, f.name]), [["n2", "NVDA"], ["n1", "NVDA"], ["c1", "Chart"]]);
+  assert.equal(flat[2].symbol, "-");
+  assert.equal(flat[0].display, "Desk");
+  assert.deepEqual(flattenCaptures([]), []);
 });

@@ -28,7 +28,7 @@ export interface Display {
   label: string;
   agent_id: string;
   connected: boolean;
-  /** Symbols with captures from the last two hours, most recently captured first. */
+  /** Symbols with captures from the last four hours, most recently captured first. */
   kept?: KeptSymbol[];
 }
 
@@ -86,7 +86,7 @@ export function takeSnapshot(agentId: string): Promise<Snapshot> {
   return picture("snapshot_display", { display: agentId });
 }
 
-/** Metered. One kept capture, exactly. One gone past its two hours costs nothing. */
+/** Metered. One kept capture, exactly. One gone past its four hours costs nothing. */
 export function takeCapture(agentId: string, capture: string): Promise<Snapshot> {
   return picture("latest_snapshot", { display: agentId, capture });
 }

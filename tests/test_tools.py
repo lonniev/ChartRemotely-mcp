@@ -378,7 +378,7 @@ async def test_a_capture_asked_for_under_another_symbol_costs_nothing(monkeypatc
     _captures(fake)
     result = await call("latest_snapshot", symbol="NVDA", capture="00000000000000a1", dpop_token="good")
     assert billing["rollback"] == 1
-    assert "no such capture from the last two hours" in str(result.structured_content)
+    assert "no such capture from the last four hours" in str(result.structured_content)
 
 
 @pytest.mark.parametrize("bad", ["00000000000000A1", "1", "0" * 17, "' OR 1=1 --", "../a1", "0" * 5000])
@@ -436,7 +436,7 @@ async def test_a_symbol_not_kept_costs_nothing(monkeypatch, billing):
     _captures(fake)
     result = await call("latest_snapshot", symbol="TSLA", dpop_token="good")
     assert billing["rollback"] == 1
-    assert "no picture of TSLA from the last two hours" in str(result.structured_content)
+    assert "no picture of TSLA from the last four hours" in str(result.structured_content)
 
 
 async def test_a_malformed_symbol_costs_nothing(monkeypatch, billing):
@@ -450,7 +450,7 @@ async def test_no_kept_picture_costs_nothing(monkeypatch, billing):
     use(monkeypatch, FakeStore())
     result = await call("latest_snapshot", dpop_token="good")
     assert billing["rollback"] == 1
-    assert "no picture from the last two hours" in str(result.structured_content)
+    assert "no picture from the last four hours" in str(result.structured_content)
 
 
 # -- one display hands a command to another ------------------------------------
