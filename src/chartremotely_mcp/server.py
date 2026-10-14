@@ -16,19 +16,28 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Any
 
 from fastmcp import FastMCP
 from fastmcp.tools import ToolResult
 from fastmcp.utilities.types import Image
-from mcp.types import TextContent
-from pydantic import Field
+from mcp.types import Icon, TextContent
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from tollbooth.credential_templates import CredentialTemplate, FieldSpec
 from tollbooth.credential_validators import validate_btcpay_creds
+from tollbooth.params import DpopToken, PatronNpub
 from tollbooth.runtime import OperatorRuntime, register_standard_tools
-from tollbooth.tool_identity import STANDARD_IDENTITIES, ToolIdentity
+from tollbooth.tool_identity import (
+    CONSUMES_REMOTE,
+    DELETES,
+    READS,
+    READS_REMOTE,
+    REPLACES_REMOTE,
+    STANDARD_IDENTITIES,
+    WRITES,
+    ToolIdentity,
+)
 
 from chartremotely_mcp import __version__, agents, displays, snapshot
 from chartremotely_mcp.config import get_settings
@@ -40,7 +49,10 @@ SITE_URL = "chartremotely.tollbooth-dpyc.com"
 SHORTCUT_URL = f"https://{SITE_URL}/ChartRemotely.shortcut"
 
 mcp = FastMCP(
-    "chartremotely",
+    "chartremotely-mcp",
+    version=__version__,
+    website_url=f"https://{SITE_URL}",
+    icons=[Icon(src="https://tollbooth-dpyc.com/dpyc-logo.png", mimeType="image/png")],
     instructions=(
         "ChartRemotely — put a security on a desktop chart anywhere in the "
         "world, by voice or by tool call. Monetized via Tollbooth DPYC "
@@ -97,48 +109,64 @@ _DOMAIN_TOOLS = [
         tool_id=SHOW_CHART_UUID,
         capability="show_chart",
         category="write",
+        title="Show a chart",
+        behavior=REPLACES_REMOTE,
         intent="Put a security on a paired display",
     ),
     ToolIdentity(
         tool_id=READ_CHART_UUID,
         capability="read_chart",
         category="read",
+        title="Read a chart",
+        behavior=READS_REMOTE,
         intent="Report what a paired display is showing",
     ),
     ToolIdentity(
         tool_id=PAIR_AGENT_UUID,
         capability="pair_agent",
         category="read",
+        title="Pair an agent",
+        behavior=WRITES,
         intent="Bind a waiting agent to this npub",
     ),
     ToolIdentity(
         tool_id=AGENT_STATUS_UUID,
         capability="agent_status",
         category="read",
+        title="Display status",
+        behavior=READS,
         intent="List paired displays and whether they are connected",
     ),
     ToolIdentity(
         tool_id=FORGET_DISPLAY_UUID,
         capability="forget_display",
         category="write",
+        title="Forget a display",
+        behavior=DELETES,
         intent="Remove a paired display and its secret",
     ),
     ToolIdentity(
         tool_id=SNAPSHOT_UUID,
         capability="snapshot_display",
         category="read",
+        title="Snapshot a display",
+        behavior=CONSUMES_REMOTE,
         intent="Return a picture of what a paired display shows",
     ),
     ToolIdentity(
         tool_id=LATEST_SNAPSHOT_UUID,
         capability="latest_snapshot",
         category="read",
+        title="Latest snapshot",
+        behavior=READS,
         intent="Show the picture a display kept after its last chart change",
     ),
     ToolIdentity(
         tool_id=GET_SHORTCUT_UUID,
         capability="get_shortcut",
         category="read",
+        title="Get the Shortcut",
+        behavior=READS,
         intent="Return the Apple Shortcut for voice control",
     ),
 ]
@@ -218,11 +246,6 @@ async def store() -> AgentStore:
         _STORE = created
     return _STORE
 
-NPUB_FIELD = Annotated[
-    str,
-    Field(description="Required. Your Nostr public key (npub1...) for credit billing."),
-]
-
 
 # ---------------------------------------------------------------------------
 # Free tools — the on-ramp
@@ -233,8 +256,8 @@ NPUB_FIELD = Annotated[
 async def pair_agent(
     code: str,
     label: str = "display",
-    npub: NPUB_FIELD = "",
-    dpop_token: str = "",
+    npub: PatronNpub = "",
+    dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Adopt an agent that is waiting to be paired.
 
@@ -256,7 +279,7 @@ async def pair_agent(
 
 
 @tool
-async def agent_status(npub: NPUB_FIELD = "", dpop_token: str = "") -> dict[str, Any]:
+async def agent_status(npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
     """List the displays paired to you, whether each is connected, and the
     captures each has kept: by symbol, the most recently captured symbol
     first, and each symbol's captures newest first. Pass a capture's ``id``
@@ -290,8 +313,8 @@ def _kept_symbol(k: KeptSymbol) -> dict[str, Any]:
 @tool
 async def forget_display(
     display: str,
-    npub: NPUB_FIELD = "",
-    dpop_token: str = "",
+    npub: PatronNpub = "",
+    dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Remove one of your displays, and the secret it signed in with.
 
@@ -311,7 +334,7 @@ async def forget_display(
 
 
 @tool
-async def get_shortcut(npub: NPUB_FIELD = "", dpop_token: str = "") -> dict[str, Any]:
+async def get_shortcut(npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
     """Get the Apple Shortcut for voice control.
 
     Import it, then say its name to Siri from any Apple device. The Shortcut
@@ -400,8 +423,8 @@ async def show_chart(
     security: str,
     scale: str = "",
     display: str = "",
-    npub: NPUB_FIELD = "",
-    dpop_token: str = "",
+    npub: PatronNpub = "",
+    dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Put a security on one of your displays.
 
@@ -419,8 +442,8 @@ async def show_chart(
 @runtime.paid_tool(READ_CHART_UUID)
 async def read_chart(
     display: str = "",
-    npub: NPUB_FIELD = "",
-    dpop_token: str = "",
+    npub: PatronNpub = "",
+    dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Report what one of your displays is currently showing.
 
@@ -435,8 +458,8 @@ async def read_chart(
 @runtime.paid_tool(SNAPSHOT_UUID)
 async def snapshot_display(
     display: str = "",
-    npub: NPUB_FIELD = "",
-    dpop_token: str = "",
+    npub: PatronNpub = "",
+    dpop_token: DpopToken = "",
 ) -> ToolResult | dict[str, Any]:
     """Take a picture of what one of your displays is showing, right now.
 
@@ -488,8 +511,8 @@ async def latest_snapshot(
     display: str = "",
     symbol: str = "",
     capture: str = "",
-    npub: NPUB_FIELD = "",
-    dpop_token: str = "",
+    npub: PatronNpub = "",
+    dpop_token: DpopToken = "",
 ) -> ToolResult | dict[str, Any]:
     """Show a picture a display kept.
 
