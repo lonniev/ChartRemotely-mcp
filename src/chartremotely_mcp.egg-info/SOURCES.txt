@@ -32,6 +32,7 @@ changelog.d/changed-0001-unreleased.md
 changelog.d/changed-holder-bearer.md
 changelog.d/changed-mcp-metadata.md
 changelog.d/changed-pin-tollbooth-dpyc-0.102.0.md
+changelog.d/changed-pin-tollbooth-dpyc-0.102.1.md
 changelog.d/changed-web-1.9.0.md
 changelog.d/notes-0001-unreleased.md
 constraints/example_advanced.json
