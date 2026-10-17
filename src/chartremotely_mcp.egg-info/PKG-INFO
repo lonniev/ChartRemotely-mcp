@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: chartremotely-mcp
-Version: 0.1.0
+Version: 0.3.0
 Summary: ChartRemotely — Tollbooth DPYC Operator MCP for remote control of desktop charting applications
 Author: Lonnie VanZandt
 License-Expression: Apache-2.0
@@ -12,7 +12,7 @@ Requires-Dist: httpx>=0.27.0
 Requires-Dist: pydantic>=2.0.0
 Requires-Dist: pydantic-settings>=2.0.0
 Requires-Dist: python-dotenv>=1.0.0
-Requires-Dist: tollbooth-dpyc[nostr]==0.90.0
+Requires-Dist: tollbooth-dpyc[nostr]==0.102.0
 Provides-Extra: dev
 Requires-Dist: ruff>=0.16.0; extra == "dev"
 Requires-Dist: pytest>=8.0; extra == "dev"
@@ -38,19 +38,54 @@ can currently buy.
 The control plane is the product. Chart analysis is abundant; remote input
 automation with a voice front end is not.
 
+## Web app
+
+`frontend/` is the site at <https://chartremotely.tollbooth-dpyc.com>: a welcome page, npub
+sign-in, a carousel of your screens with a live snapshot on request, and a profile for your
+balance and paired displays. It is built on
+[`@tollbooth-dpyc/web`](https://github.com/lonniev/tollbooth-web), the shared browser SDK,
+and deploys to Cloudflare Pages through the fleet's shared workflow on every push to main
+that touches `frontend/`.
+
+```sh
+cd frontend && npm install && npm run dev   # tests run as part of npm run build
+```
+
 ## Tools
 
 | Tool | Price | What it does |
 |---|---|---|
 | `get_shortcut` | **free** | Returns the Apple Shortcut, ready to import |
 | `pair_agent` | free | Binds an agent to the caller's npub |
-| `agent_status` | free | Which agents are paired, and are they connected |
+| `agent_status` | free | Which displays are paired, and are they connected |
+| `forget_display` | free | Removes a display and the secret it signed in with |
 | `show_chart` | metered | Put a security on a paired display |
 | `read_chart` | metered | What a display is currently showing |
+| `snapshot_display` | metered | A JPEG of the display's chart window, right now - also kept as a capture |
+| `latest_snapshot` | metered | A kept capture: the newest, a symbol's newest, or one by `capture` id |
 
-`show_chart` returns a cropped image of the chart's own window buffer. A
-remote command you cannot see is otherwise indistinguishable from one that
-silently failed.
+Every tool that takes an npub needs a proof of that npub (`request_npub_proof`,
+then `receive_npub_proof`); `get_shortcut` hands out a public file and does not.
+
+A metered call to a display that never answers - offline, or not running the
+agent - is refunded, and so is one naming a display you do not have.
+A display keeps captures by symbol: the newest 6 of each of its last 20
+symbols, sealed with the vault cipher, each for four hours. One lands after
+every chart change the agent pushes, and one with every `snapshot_display`
+(filed under the symbol the display says it shows, or "Chart"). The AAD binds
+each capture to its display, its symbol and its capture id. `agent_status`
+lists them per display - symbols by newest capture, each with its `captures`
+newest first - and `latest_snapshot(capture=...)` shows one exactly.
+
+A picture reply leads with one line of text naming what is known about it -
+display, symbol, scale, capture time, e.g. `Mac mini · PLTR · half · captured
+2026-09-24 22:10 UTC` - then the JPEG. Anything unknown is left out. The line
+survives when a client drops images to compact a long conversation, and it is
+all a client that cannot render images gets.
+
+`display` may be said loosely: "mini mac", "mini" or "mack meeny" all find
+"Mac mini". A name that could mean several displays is answered with them
+(see [PROTOCOL.md](PROTOCOL.md#naming-a-display) for the rules).
 
 ## What it deliberately cannot do
 
@@ -63,7 +98,7 @@ require changes in both repositories, in public.
 ## Related
 
 - [ChartRemotely-agent](https://github.com/lonniev/ChartRemotely-agent) — runs on the patron's Mac
-- [ChartRemotely](https://github.com/lonniev/ChartRemotely) — landing page
+- [chartremotely.tollbooth-dpyc.com](https://chartremotely.tollbooth-dpyc.com) — the web app, built from `frontend/` here
 
 ## License
 
