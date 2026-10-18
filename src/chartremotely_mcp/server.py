@@ -26,7 +26,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from tollbooth.credential_templates import CredentialTemplate, FieldSpec
 from tollbooth.credential_validators import validate_btcpay_creds
-from tollbooth.params import DpopToken, PatronNpub
+from tollbooth.params import PatronNpub
 from tollbooth.runtime import OperatorRuntime, register_standard_tools
 from tollbooth.tool_identity import (
     CONSUMES_REMOTE,
@@ -83,9 +83,10 @@ mcp = FastMCP(
         "chart_snapshot_display and chart_latest_snapshot are metered, and a display that does not "
         "answer costs nothing. Use `chart_check_price` to preview and "
         "`chart_check_balance` to see your balance.\n\n"
-        "Every tool that takes an npub needs a proof: call "
-        "chart_request_npub_proof, then chart_receive_npub_proof, and pass "
-        "the dpop_token it returns."
+        "Every tool that takes an npub needs your connection to prove it: "
+        "call chart_request_npub_proof, reply to the DM, then call "
+        "chart_receive_npub_proof(patron_npub, nonce) once. Your connection "
+        "then holds the npub; pass only npub."
     ),
 )
 
@@ -260,7 +261,6 @@ async def pair_agent(
     code: str,
     label: str = "display",
     npub: PatronNpub = "",
-    dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Adopt an agent that is waiting to be paired.
 
@@ -272,7 +272,7 @@ async def pair_agent(
         code: The pairing code the agent printed.
         label: What to call this display, e.g. "east wall". Used to address it later.
     """
-    if err := await runtime.require_caller_proof(npub, dpop_token, "pair_agent"):
+    if err := await runtime.require_caller_proof(npub):
         return err
     try:
         agent = await (await store()).claim(code, npub, label)
@@ -282,12 +282,12 @@ async def pair_agent(
 
 
 @tool
-async def agent_status(npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
+async def agent_status(npub: PatronNpub = "") -> dict[str, Any]:
     """List the displays paired to you, whether each is connected, and the
     captures each has kept: by symbol, the most recently captured symbol
     first, and each symbol's captures newest first. Pass a capture's ``id``
     (or just a symbol) to chart_latest_snapshot to see it."""
-    if err := await runtime.require_caller_proof(npub, dpop_token, "agent_status"):
+    if err := await runtime.require_caller_proof(npub):
         return err
     db = await store()
     owned = await db.for_npub(npub)
@@ -317,7 +317,6 @@ def _kept_symbol(k: KeptSymbol) -> dict[str, Any]:
 async def forget_display(
     display: str,
     npub: PatronNpub = "",
-    dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Remove one of your displays, and the secret it signed in with.
 
@@ -327,7 +326,7 @@ async def forget_display(
     Args:
         display: The display's name, or its agent_id when several share a name.
     """
-    if err := await runtime.require_caller_proof(npub, dpop_token, "forget_display"):
+    if err := await runtime.require_caller_proof(npub):
         return err
     try:
         agent = await (await store()).forget(npub, display)
@@ -337,7 +336,7 @@ async def forget_display(
 
 
 @tool
-async def get_shortcut(npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
+async def get_shortcut(npub: PatronNpub = "") -> dict[str, Any]:
     """Get the Apple Shortcut for voice control.
 
     Import it, then say its name to Siri from any Apple device. The Shortcut
@@ -427,7 +426,6 @@ async def show_chart(
     scale: str = "",
     display: str = "",
     npub: PatronNpub = "",
-    dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Put a security on one of your displays.
 
@@ -446,7 +444,6 @@ async def show_chart(
 async def read_chart(
     display: str = "",
     npub: PatronNpub = "",
-    dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Report what one of your displays is currently showing.
 
@@ -462,7 +459,6 @@ async def read_chart(
 async def snapshot_display(
     display: str = "",
     npub: PatronNpub = "",
-    dpop_token: DpopToken = "",
 ) -> ToolResult | dict[str, Any]:
     """Take a picture of what one of your displays is showing, right now.
 
@@ -515,7 +511,6 @@ async def latest_snapshot(
     symbol: str = "",
     capture: str = "",
     npub: PatronNpub = "",
-    dpop_token: DpopToken = "",
 ) -> ToolResult | dict[str, Any]:
     """Show a picture a display kept.
 
