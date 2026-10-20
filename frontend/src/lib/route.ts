@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 
-export type View = "welcome" | "how" | "start" | "save-key" | "signin" | "screens" | "profile";
+export type View = "welcome" | "how" | "prices" | "start" | "save-key" | "signin" | "screens" | "profile";
 
-const VIEWS: View[] = ["welcome", "how", "start", "save-key", "signin", "screens", "profile"];
+const VIEWS: View[] = ["welcome", "how", "prices", "start", "save-key", "signin", "screens", "profile"];
 
 /** The hash after "#/", split into the view and its query ("save-key?npub=…"). */
 function parts(): [string, URLSearchParams] {

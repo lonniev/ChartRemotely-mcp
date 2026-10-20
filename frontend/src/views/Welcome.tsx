@@ -158,12 +158,18 @@ export default function Welcome({ signedIn }: { signedIn: boolean }) {
           It is an MCP server that earns by the request over Bitcoin Lightning, priced live from the operator's Pricing
           Studio with no code changes. The same framework turns any useful tool into a business.
         </p>
-        <button type="button" onClick={() => go("how")} className="mt-3 text-sm text-[var(--tb-accent)]">
-          See how it fits together →
-        </button>
+        <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm text-[var(--tb-accent)]">
+          <button type="button" onClick={() => go("how")}>
+            See how it fits together →
+          </button>
+          <button type="button" onClick={() => go("prices")}>
+            See the prices →
+          </button>
+        </div>
       </section>
 
       <footer className="mt-16 flex flex-wrap gap-5 border-t border-[var(--tb-line)] py-8 text-sm text-[var(--tb-muted)]">
+        <a href="#/prices">Prices</a>
         <a href="https://github.com/lonniev/ChartRemotely-agent">Agent</a>
         <a href="https://github.com/lonniev/ChartRemotely-mcp">Operator</a>
         <a href="https://github.com/lonniev/tollbooth-dpyc">Tollbooth DPYC™</a>

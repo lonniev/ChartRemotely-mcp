@@ -6,6 +6,7 @@ import { go, useView } from "./lib/route";
 import Profile from "./views/Profile";
 import Screens from "./views/Screens";
 import HowItWorks from "./views/HowItWorks";
+import Prices from "./views/Prices";
 import SaveKey from "./views/SaveKey";
 import Start from "./views/Start";
 import Welcome from "./views/Welcome";
@@ -77,6 +78,7 @@ export default function App() {
       <main>
         {view === "welcome" && <Welcome signedIn={session.signedIn} />}
         {view === "how" && <HowItWorks />}
+        {view === "prices" && <Prices />}
         {view === "start" && <Start />}
         {view === "save-key" && <SaveKey session={session} />}
         {view === "signin" && (
