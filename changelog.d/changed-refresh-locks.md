@@ -1,1 +1,0 @@
-- Dependencies refreshed to current releases (mcp/fastmcp 2.2.0/4.0.5 → 2.3.0/4.1.0; frontend minor/patch). No service stays on old transitive versions.

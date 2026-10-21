@@ -1,1 +1,0 @@
-- Every ChartRemotely tool now carries a plain-words title, its read/write/open-world hints and a description for each parameter, and the server announces itself as chartremotely-mcp with its version, website and icon.
