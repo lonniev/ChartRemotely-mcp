@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@tollbooth-dpyc/web/theme.css";
+@import "@tollbooth-dpyc/web/price-sheet.css";
 @source "../node_modules/@tollbooth-dpyc/web/dist";
 
 /* A trading-desk palette: the chart is the bright thing on the screen, so the
@@ -39,3 +40,13 @@ body {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* The price sheet on the trading desk: fares read like a quote board, in
+   tabular mono, and the cards sit on the page's near-black, not on grey. */
+.tb-ps {
+  --tb-ps-display-font: ui-monospace, "SF Mono", Menlo, monospace;
+  --tb-ps-card: var(--tb-surface);
+  --tb-ps-wash: color-mix(in srgb, var(--tb-accent) 14%, var(--tb-surface));
+}
+.tb-ps-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+.tb-ps-fare-n { color: var(--tb-accent); }
