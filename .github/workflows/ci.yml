@@ -8,12 +8,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install -e ".[dev]"
-      - run: ruff check src tests
-      - run: pytest -q
+
+      # The build-and-verify contract every DPYC MCP shares: install the way
+      # Horizon installs (uv sync --locked), lint, prove the entrypoint with
+      # `fastmcp inspect`, run the suite. Without the inspect step a server
+      # that cannot start still shows green, which is how optionality-mcp sat
+      # four days stale. A composite action, so this job keeps its `test` name.
+      - uses: lonniev/dpyc-community/.github/actions/mcp-ci@main
 
   # The site, built the way production builds it. Green has to mean it still builds.
   frontend:
