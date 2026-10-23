@@ -256,7 +256,9 @@ def test_a_well_formed_reply_is_accepted():
     (snapshot.PREFIX + "not*base64", "damaged"),
     (snapshot.PREFIX + base64.b64encode(b"GIF89a").decode(), "not a JPEG"),
     (snapshot.PREFIX + "A" * snapshot.MAX_REPLY_CHARS, "too large"),
-])
+# Named by the reason. The default id is the reply itself, and the oversized
+# one made a multi-megabyte line under `pytest -v` that stalled CI for hours.
+], ids=["no window", "not a snapshot", "damaged", "not a JPEG", "too large"])
 def test_anything_else_is_refused(reply, why):
     with pytest.raises(ValueError, match=why):
         snapshot.parse(reply)
@@ -383,7 +385,8 @@ async def test_a_capture_asked_for_under_another_symbol_costs_nothing(monkeypatc
     assert "no such capture from the last four hours" in str(result.structured_content)
 
 
-@pytest.mark.parametrize("bad", ["00000000000000A1", "1", "0" * 17, "' OR 1=1 --", "../a1", "0" * 5000])
+@pytest.mark.parametrize("bad", ["00000000000000A1", "1", "0" * 17, "' OR 1=1 --", "../a1", "0" * 5000],
+                         ids=["upper case", "short", "long", "injection", "path", "huge"])
 async def test_a_malformed_capture_id_costs_nothing_and_reaches_no_store(monkeypatch, billing, bad):
     fake = use(monkeypatch, FakeStore())
     _captures(fake)
