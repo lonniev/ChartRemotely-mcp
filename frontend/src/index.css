@@ -1,6 +1,6 @@
 @import "tailwindcss";
 @import "@tollbooth-dpyc/web/theme.css";
-@import "@tollbooth-dpyc/web/price-sheet.css";
+@import "@tollbooth-dpyc/web/wallet.css";
 @source "../node_modules/@tollbooth-dpyc/web/dist";
 
 /* A trading-desk palette: the chart is the bright thing on the screen, so the
@@ -50,3 +50,10 @@ body {
 }
 .tb-ps-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
 .tb-ps-fare-n { color: var(--tb-accent); }
+
+/* The shared wallet on the trading desk: figures in the quote board's mono. */
+:root {
+  --tb-wallet-figure-font: ui-monospace, "SF Mono", Menlo, monospace;
+  --tb-wallet-radius: 1rem;
+  --tb-tile-font: ui-monospace, "SF Mono", Menlo, monospace;
+}

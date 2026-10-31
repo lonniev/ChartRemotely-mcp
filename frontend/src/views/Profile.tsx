@@ -9,7 +9,7 @@ import { Check, Link2, LogOut, Mic, MonitorOff, MonitorPlay, Trash2, X } from "l
 import { ProofRequiredError } from "@tollbooth-dpyc/web";
 import {
   AccountPage,
-  WalletCard,
+  BalanceAndTopUp,
   type BuildInfoPanelClassNames,
   type Session,
   type UsageSummaryClassNames,
@@ -58,7 +58,7 @@ export default function Profile({ session }: { session: Session }) {
       npub={session.npub}
       heading={null}
       between={{
-        profile: <WalletCard />,
+        profile: <BalanceAndTopUp />,
         usage: (
           <>
             <Displays />
@@ -78,7 +78,6 @@ export default function Profile({ session }: { session: Session }) {
         },
       }}
       theme={false}
-      coupons={false}
       build={{
         frontend: { version: __APP_VERSION__, source: "https://github.com/lonniev/ChartRemotely-mcp" },
         classNames: buildStyles,
