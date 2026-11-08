@@ -1,0 +1,1 @@
+- The site serves `/llms.txt`, a guide for AI agents built by the shared `@tollbooth-dpyc/web/agent-guide` plugin, and links it from every page.
