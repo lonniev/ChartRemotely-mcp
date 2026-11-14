@@ -1,15 +1,17 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { MonitorPlay } from "lucide-react";
 import { avatarFor } from "@tollbooth-dpyc/web";
 import { Avatar, DebugPanel, NpubGate, useSession } from "@tollbooth-dpyc/web/react";
 import { go, useView } from "./lib/route";
-import Profile from "./views/Profile";
-import Screens from "./views/Screens";
 import HowItWorks from "./views/HowItWorks";
-import Prices from "./views/Prices";
-import SaveKey from "./views/SaveKey";
-import Start from "./views/Start";
 import Welcome from "./views/Welcome";
+
+// Each page past the front door is its own chunk, fetched the first time it opens.
+const Profile = lazy(() => import("./views/Profile"));
+const Screens = lazy(() => import("./views/Screens"));
+const Prices = lazy(() => import("./views/Prices"));
+const SaveKey = lazy(() => import("./views/SaveKey"));
+const Start = lazy(() => import("./views/Start"));
 
 /** The site's own words above the sign-in card. */
 const WELCOME = "Say it here. See it there. Put a security on a desktop chart anywhere in the world, by voice or by tool call.";
@@ -76,6 +78,7 @@ export default function App() {
       </nav>
 
       <main>
+        <Suspense fallback={<p className="p-6 text-center text-sm text-[var(--tb-muted)]">Loading…</p>}>
         {view === "welcome" && <Welcome signedIn={session.signedIn} />}
         {view === "how" && <HowItWorks />}
         {view === "prices" && <Prices />}
@@ -94,6 +97,7 @@ export default function App() {
         )}
         {view === "screens" && session.signedIn && <Screens />}
         {view === "profile" && session.signedIn && <Profile session={session} />}
+        </Suspense>
       </main>
 
       {/* The call log, for anyone signed in and at the gate (where a proof that
