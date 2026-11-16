@@ -3,6 +3,7 @@
  */
 
 import { formatDateTime } from "@tollbooth-dpyc/web";
+import { tr } from "../i18n/index.ts";
 
 export interface DisplayLike {
   label: string;
@@ -40,11 +41,11 @@ export function takenAgo(iso: string, timeZone: string, now = Date.now()): strin
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "";
   const s = Math.max(0, Math.round((now - t) / 1000));
-  if (s < 45) return "just now";
+  if (s < 45) return tr("lib.screens.justNow");
   const m = Math.round(s / 60);
-  if (m < 60) return `${m} min ago`;
+  if (m < 60) return tr("lib.screens.minutesAgo", { n: m });
   const h = Math.round(m / 60);
-  if (h < 24) return `${h} h ago`;
+  if (h < 24) return tr("lib.screens.hoursAgo", { n: h });
   return formatDateTime(iso, timeZone);
 }
 

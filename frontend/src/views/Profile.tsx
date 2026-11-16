@@ -10,12 +10,15 @@ import { ProofRequiredError } from "@tollbooth-dpyc/web";
 import {
   AccountPage,
   BalanceAndTopUp,
+  LanguageChooser,
+  Tx,
   type BuildInfoPanelClassNames,
   type Session,
   type UsageSummaryClassNames,
 } from "@tollbooth-dpyc/web/react";
 import { forgetDisplay, getShortcut, listDisplays, pairDisplay, type Display } from "../lib/chart";
 import { displayNames, normalizeCode, orderDisplays } from "../lib/screens";
+import { useT, WORDS } from "../i18n";
 
 const card = "rounded-2xl border border-[var(--tb-line)] bg-[var(--tb-surface)] p-4";
 const field =
@@ -53,6 +56,7 @@ const buildStyles: BuildInfoPanelClassNames = {
 };
 
 export default function Profile({ session }: { session: Session }) {
+  const t = useT();
   return (
     <AccountPage
       npub={session.npub}
@@ -69,8 +73,8 @@ export default function Profile({ session }: { session: Session }) {
       usage={{ classNames: usageStyles }}
       timezone={{
         heading: null,
-        label: "Time zone",
-        note: () => "When your pictures were taken, in this zone.",
+        label: t("views.profile.timezone"),
+        note: () => t("views.profile.timezoneNote"),
         classNames: {
           root: "flex flex-col gap-2",
           label: heading,
@@ -83,14 +87,19 @@ export default function Profile({ session }: { session: Session }) {
         classNames: buildStyles,
       }}
       after={
-        <p className="px-1 text-[11px] text-[var(--tb-muted)]">
-          {session.canSign ? "Signing with a key held in this tab." : "Signed in on a cached proof, which expires."}
-        </p>
+        <>
+          <section className={card}>
+            <LanguageChooser />
+          </section>
+          <p className="px-1 text-[11px] text-[var(--tb-muted)]">
+            {session.canSign ? t("views.profile.signing") : t("views.profile.cached")}
+          </p>
+        </>
       }
       onSignOut={session.signOut}
       signOutLabel={
         <>
-          <LogOut size={14} /> Sign out
+          <LogOut size={14} /> {t("views.profile.signOut")}
         </>
       }
       classNames={{
@@ -105,6 +114,7 @@ export default function Profile({ session }: { session: Session }) {
 }
 
 function Displays() {
+  const t = useT();
   const [displays, setDisplays] = useState<Display[] | null>(null);
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -139,27 +149,27 @@ function Displays() {
 
   return (
     <section className={card}>
-      <h2 className="mb-3 text-sm text-[var(--tb-muted)]">Screens</h2>
-      {displays?.length === 0 && <p className="text-sm text-[var(--tb-muted)]">None paired yet.</p>}
+      <h2 className="mb-3 text-sm text-[var(--tb-muted)]">{t("views.profile.screens")}</h2>
+      {displays?.length === 0 && <p className="text-sm text-[var(--tb-muted)]">{t("views.profile.none")}</p>}
       <ul className="divide-y divide-[var(--tb-line)]">
         {displays?.map((d) => {
           const name = names.get(d.agent_id) ?? d.label;
           return (
             <li key={d.agent_id} className="flex items-center gap-3 py-2.5">
               {d.connected ? (
-                <MonitorPlay size={18} className="text-[var(--tb-ok)]" aria-label="Connected" />
+                <MonitorPlay size={18} className="text-[var(--tb-ok)]" aria-label={t("views.screens.connected")} />
               ) : (
-                <MonitorOff size={18} className="text-[var(--tb-muted)]" aria-label="Offline" />
+                <MonitorOff size={18} className="text-[var(--tb-muted)]" aria-label={t("views.screens.offline")} />
               )}
               <span className="min-w-0 flex-1 truncate text-sm">{name}</span>
               {confirming === d.agent_id ? (
                 <>
-                  <span className="text-xs text-[var(--tb-muted)]">Remove?</span>
+                  <span className="text-xs text-[var(--tb-muted)]">{t("views.profile.removeAsk")}</span>
                   <button
                     type="button"
                     onClick={() => void forget(d.agent_id)}
                     disabled={busy === d.agent_id}
-                    aria-label={`Yes, remove ${name}`}
+                    aria-label={t("views.profile.removeYes", { name })}
                     className="rounded-full p-2 text-[var(--tb-err-ink)] disabled:opacity-40"
                   >
                     <Check size={18} />
@@ -167,7 +177,7 @@ function Displays() {
                   <button
                     type="button"
                     onClick={() => setConfirming(null)}
-                    aria-label="Keep it"
+                    aria-label={t("views.profile.keep")}
                     className="rounded-full p-2 text-[var(--tb-muted)]"
                   >
                     <X size={18} />
@@ -177,8 +187,8 @@ function Displays() {
                 <button
                   type="button"
                   onClick={() => setConfirming(d.agent_id)}
-                  aria-label={`Remove ${name}`}
-                  title="Remove"
+                  aria-label={t("views.profile.removeName", { name })}
+                  title={t("views.profile.remove")}
                   className="rounded-full p-2 text-[var(--tb-muted)] hover:text-[var(--tb-err-ink)]"
                 >
                   <Trash2 size={18} />
@@ -195,6 +205,7 @@ function Displays() {
 }
 
 function PairForm({ onPaired }: { onPaired: () => void }) {
+  const t = useT();
   const [code, setCode] = useState("");
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
@@ -205,7 +216,7 @@ function PairForm({ onPaired }: { onPaired: () => void }) {
     setMsg(null);
     try {
       const d = await pairDisplay(code, label.trim() || "display");
-      setMsg({ ok: true, text: `Paired ${d.label}. It shows as connected once its relay is running.` });
+      setMsg({ ok: true, text: t("views.profile.paired", { name: d.label }) });
       setCode("");
       setLabel("");
       onPaired();
@@ -219,17 +230,17 @@ function PairForm({ onPaired }: { onPaired: () => void }) {
   return (
     <div className="mt-4 border-t border-[var(--tb-line)] pt-4">
       <div className="mb-2 flex items-center gap-2 text-sm">
-        <Link2 size={16} /> Pair a screen
+        <Link2 size={16} /> {t("views.profile.pairHeading")}
       </div>
       <p className="mb-3 text-xs text-[var(--tb-muted)]">
-        On that Mac, run <code className="font-mono">chartremotely pair</code> and type the code it shows.
+        <Tx ns={WORDS} k="views.profile.pairHow" components={{ cmd: <code className="font-mono" /> }} />
       </p>
       <div className="flex gap-2">
         <input
           value={code}
           onChange={(e) => setCode(normalizeCode(e.target.value))}
-          placeholder="CODE"
-          aria-label="Pairing code"
+          placeholder={t("views.profile.codePlaceholder")}
+          aria-label={t("views.profile.code")}
           autoCapitalize="characters"
           spellCheck={false}
           className={`${field} w-28 flex-none text-center font-mono tracking-widest`}
@@ -237,8 +248,8 @@ function PairForm({ onPaired }: { onPaired: () => void }) {
         <input
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          placeholder="Name, e.g. Desk"
-          aria-label="Screen name"
+          placeholder={t("views.profile.namePlaceholder")}
+          aria-label={t("views.profile.name")}
           maxLength={40}
           className={`${field} min-w-0 flex-1`}
         />
@@ -249,7 +260,7 @@ function PairForm({ onPaired }: { onPaired: () => void }) {
         disabled={code.length !== 6 || busy}
         className="mt-3 w-full rounded-full bg-[var(--tb-accent)] py-2.5 text-sm font-medium text-[var(--tb-on-accent)] disabled:opacity-40"
       >
-        {busy ? "Pairing…" : "Pair"}
+        {busy ? t("views.profile.pairing") : t("views.profile.pair")}
       </button>
       {msg && (
         <p className={`mt-2 text-xs ${msg.ok ? "text-[var(--tb-ok)]" : "text-[var(--tb-err-ink)]"}`}>{msg.text}</p>
@@ -259,6 +270,7 @@ function PairForm({ onPaired }: { onPaired: () => void }) {
 }
 
 function Voice() {
+  const t = useT();
   const [url, setUrl] = useState("");
   useEffect(() => {
     getShortcut()
@@ -269,7 +281,7 @@ function Voice() {
   return (
     <a href={url} className={`${card} flex items-center gap-3 text-sm hover:border-[var(--tb-accent)]`}>
       <Mic size={18} className="text-[var(--tb-accent)]" />
-      <span className="flex-1">Get the Siri Shortcut</span>
+      <span className="flex-1">{t("views.profile.shortcut")}</span>
     </a>
   );
 }

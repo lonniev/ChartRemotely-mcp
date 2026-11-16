@@ -3,6 +3,8 @@
  * Testable under node:test.
  */
 
+import { tr } from "../i18n/index.ts";
+
 export interface CaptureLike {
   id: string;
   taken_at: string;
@@ -89,9 +91,9 @@ export function indexOr0<T>(items: T[], matches: (item: T) => boolean): number {
   return i < 0 ? 0 : i;
 }
 
-/** "1 capture", "3 captures". */
+/** "1 capture", "3 captures", in the reader's language. */
 export function captureCount(n: number): string {
-  return `${n} capture${n === 1 ? "" : "s"}`;
+  return tr("lib.gallery.captures", { count: n });
 }
 
 /** The symbols the empty page shows as examples. Never real data. */

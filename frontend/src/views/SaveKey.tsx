@@ -16,11 +16,13 @@ import { setSessionNsec, setStoredNpub } from "@tollbooth-dpyc/web";
 import type { Session } from "@tollbooth-dpyc/web/react";
 import { npubForNsec } from "../lib/keys";
 import { go, routeParam } from "../lib/route";
+import { useT } from "../i18n";
 
 const field =
   "mt-1 w-full rounded-lg border border-[var(--tb-line)] bg-transparent px-3 py-2.5 font-mono text-sm focus:border-[var(--tb-accent)] focus:outline-none";
 
 export default function SaveKey({ session }: { session: Session }) {
+  const t = useT();
   const [nsec, setNsec] = useState("");
   const [error, setError] = useState("");
   // Setup passes the npub it created; the key pasted here must derive to it.
@@ -31,11 +33,11 @@ export default function SaveKey({ session }: { session: Session }) {
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!derived) {
-      setError("That is not a valid nsec. Paste the key setup placed on your clipboard.");
+      setError(t("views.saveKey.invalid"));
       return;
     }
     if (expected && derived !== expected) {
-      setError("That key belongs to a different npub than the one setup created. Paste the key setup placed on your clipboard.");
+      setError(t("views.saveKey.mismatch"));
       return;
     }
     setSessionNsec(nsec.trim());
@@ -48,28 +50,26 @@ export default function SaveKey({ session }: { session: Session }) {
     <div className="mx-auto max-w-md px-4 py-10">
       <div className="mb-2 flex items-center gap-2">
         <KeyRound size={20} className="text-[var(--tb-accent)]" aria-hidden="true" />
-        <h1 className="text-xl font-semibold">Save your key</h1>
+        <h1 className="text-xl font-semibold">{t("views.saveKey.title")}</h1>
       </div>
       <p className="mb-6 text-sm leading-relaxed text-[var(--tb-muted)]">
-        Setup created your Nostr key and placed it on your clipboard. Paste it below and sign in. Safari then offers to
-        save it to iCloud Passwords, so it is available on your other devices, and Pricing Studio can fill it in when you
-        add yourself as a patron.
+        {t("views.saveKey.lede")}
       </p>
 
       <form onSubmit={submit} className="space-y-4 rounded-2xl border border-[var(--tb-line)] bg-[var(--tb-surface)] p-5">
         <label className="block text-xs text-[var(--tb-muted)]">
-          Your npub (public — your account name)
+          {t("views.saveKey.npub")}
           <input
             name="username"
             autoComplete="username"
             value={npub}
             readOnly
-            placeholder="filled in from your key"
+            placeholder={t("views.saveKey.npubPlaceholder")}
             className={field}
           />
         </label>
         <label className="block text-xs text-[var(--tb-muted)]">
-          Your nsec (secret — your password)
+          {t("views.saveKey.nsec")}
           <input
             name="password"
             type="password"
@@ -92,13 +92,12 @@ export default function SaveKey({ session }: { session: Session }) {
           disabled={!derived}
           className="w-full rounded-full bg-[var(--tb-accent)] py-2.5 text-sm font-medium text-[var(--tb-on-accent)] disabled:opacity-40"
         >
-          Sign in and save
+          {t("views.saveKey.submit")}
         </button>
       </form>
 
       <p className="mt-4 text-xs leading-relaxed text-[var(--tb-muted)]">
-        Keep a second copy somewhere safe. Your nsec is the only way to act as your npub, and nobody — including
-        ChartRemotely — can recover it for you.
+        {t("views.saveKey.keep")}
       </p>
     </div>
   );

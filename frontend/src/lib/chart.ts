@@ -4,6 +4,7 @@
  */
 
 import { callTool, callToolWithContent } from "@tollbooth-dpyc/web";
+import { tr } from "../i18n/index.ts";
 
 /** One kept capture of a symbol, as status lists it. */
 export interface KeptCapture {
@@ -41,7 +42,7 @@ interface Failure {
 function failed(r: unknown): string | null {
   const f = r as Failure | null;
   if (f && typeof f === "object" && (f.ok === false || f.success === false || f.error)) {
-    return f.error ?? "The service refused that.";
+    return f.error ?? tr("lib.chart.refused");
   }
   return null;
 }
@@ -98,7 +99,7 @@ async function picture(tool: string, args: Record<string, string>): Promise<Snap
   const err = failed(data);
   if (err) throw new Error(err);
   const img = images[0];
-  if (!img) throw new Error("The display answered without a picture.");
+  if (!img) throw new Error(tr("lib.chart.noPicture"));
   return {
     src: `data:${img.mimeType};base64,${img.data}`,
     takenAt: data.taken_at ?? new Date().toISOString(),

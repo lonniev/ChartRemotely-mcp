@@ -40,7 +40,8 @@ import {
 import { go } from "../lib/route";
 import { CLOCK, displayNames, orderDisplays, takenAgo } from "../lib/screens";
 import { pictureQuoteStyles, quoteStyles } from "../lib/quoteStyles";
-import { TRADING_QUOTES } from "../lib/tradingQuotes";
+import { tradingQuotes } from "../lib/tradingQuotes";
+import { useT } from "../i18n";
 
 interface Pic {
   snap?: Snapshot;
@@ -59,8 +60,6 @@ type Zoomed =
   /** A live picture the display could not keep: look now or never. */
   | { kind: "live"; title: string; snap: Snapshot };
 
-const SIRI_LINE = "Say “Hey Siri, ChartRemotely” and your charts gather here, by symbol, for four hours.";
-
 export default function Screens() {
   const [displays, setDisplays] = useState<Display[] | null>(null);
   const [error, setError] = useState("");
@@ -74,6 +73,7 @@ export default function Screens() {
   const [zoomed, setZoomed] = useState<Zoomed | null>(null);
   const [, tick] = useState(0);
   const [, zone] = useTimezone();
+  const t = useT();
 
   const refresh = useCallback(
     () =>
@@ -161,7 +161,7 @@ export default function Screens() {
   if (displays === null && !error) {
     return (
       <div className="mx-auto max-w-2xl py-14">
-        <QuoteScroller quotes={TRADING_QUOTES} heading="Finding your screens…" spinner classNames={quoteStyles} />
+        <QuoteScroller quotes={tradingQuotes()} heading={t("views.screens.finding")} spinner classNames={quoteStyles} />
       </div>
     );
   }
@@ -171,7 +171,7 @@ export default function Screens() {
       <div className="mx-auto max-w-md px-4 py-16 text-center text-sm">
         <p className="mb-4 text-[var(--tb-err-ink)]">{error}</p>
         <button type="button" onClick={load} className="min-h-10 rounded-full border border-[var(--tb-line)] px-4 py-2">
-          Try again
+          {t("views.screens.tryAgain")}
         </button>
       </div>
     );
@@ -184,8 +184,8 @@ export default function Screens() {
       {group ? (
         <>
           <Carousel
-            label="Symbols"
-            itemName="symbol"
+            label={t("views.screens.symbols")}
+            itemName={t("views.screens.symbol")}
             size="card"
             index={groupAt}
             onSettle={(i) => {
@@ -205,8 +205,8 @@ export default function Screens() {
             <Carousel
               // A new symbol starts at its newest capture.
               key={group.symbol}
-              label={`Captures of ${group.name}`}
-              itemName="capture"
+              label={t("views.screens.capturesOf", { name: group.name })}
+              itemName={t("views.screens.capture")}
               index={captureAt}
               onSettle={(i) => {
                 const c = group.captures[i];
@@ -230,7 +230,7 @@ export default function Screens() {
             </Carousel>
             {group.captures.length === 1 && (
               <p className="mt-1 text-center text-sm text-[var(--tb-muted)]">
-                More captures of {group.name} collect here.
+                {t("views.screens.more", { name: group.name })}
               </p>
             )}
           </div>
@@ -244,12 +244,12 @@ export default function Screens() {
       {zoomed?.kind === "kept" && current && (
         <Lightbox
           title={`${current.name} · ${captionOf(current, zone)}`}
-          count={`${flatAt + 1} of ${flat.length}`}
+          count={t("views.screens.count", { n: flatAt + 1, total: flat.length })}
           onClose={() => setZoomed(null)}
         >
           <Carousel
-            label="Every capture, full screen"
-            itemName="capture"
+            label={t("views.screens.everyCapture")}
+            itemName={t("views.screens.capture")}
             size="full"
             dots={false}
             autoFocus
@@ -312,6 +312,7 @@ function Lightbox({
   closeFocus?: boolean;
   children: ReactNode;
 }) {
+  const t = useT();
   return (
     <div
       role="dialog"
@@ -327,7 +328,7 @@ function Lightbox({
           type="button"
           autoFocus={closeFocus}
           onClick={onClose}
-          aria-label="Close"
+          aria-label={t("views.screens.close")}
           className="flex h-10 w-10 flex-none items-center justify-center rounded-full"
         >
           <X size={22} />
@@ -339,6 +340,7 @@ function Lightbox({
 }
 
 function SymbolCard({ group, selected, zone }: { group: SymbolGroup; selected: boolean; zone: string }) {
+  useT(); // re-render when the language changes
   const shown = new Set(group.captures.map((c) => c.display));
   return (
     <button
@@ -409,10 +411,11 @@ function Picture({
   onOpen?: () => void;
   onRetry: () => void;
 }) {
+  const t = useT();
   if (pic?.snap) {
     const img = <img src={pic.snap.src} alt={alt} className="h-full w-full object-contain" />;
     return onOpen ? (
-      <button type="button" onClick={onOpen} aria-label={`Open ${alt} full screen`} className="block h-full w-full">
+      <button type="button" onClick={onOpen} aria-label={t("views.screens.open", { picture: alt })} className="block h-full w-full">
         {img}
       </button>
     ) : (
@@ -428,7 +431,7 @@ function Picture({
           onClick={onRetry}
           className="inline-flex min-h-10 items-center gap-2 rounded-full border border-[var(--tb-line)] px-4"
         >
-          <RotateCw size={16} /> Try again
+          <RotateCw size={16} /> {t("views.screens.tryAgain")}
         </button>
       </div>
     );
@@ -436,7 +439,7 @@ function Picture({
   if (pic?.busy || loading) {
     return (
       <div className="absolute inset-0 flex items-center justify-center overflow-hidden bg-black/85">
-        <QuoteScroller quotes={TRADING_QUOTES} heading="Fetching your chart…" spinner classNames={pictureQuoteStyles} />
+        <QuoteScroller quotes={tradingQuotes()} heading={t("views.screens.fetching")} spinner classNames={pictureQuoteStyles} />
       </div>
     );
   }
@@ -458,6 +461,7 @@ function DisplayRow({
   live: Record<string, Live>;
   onShoot: (d: Display) => void;
 }) {
+  const t = useT();
   if (!displays.length) {
     return (
       <div className="mt-8 flex justify-center">
@@ -466,14 +470,14 @@ function DisplayRow({
           onClick={() => go("profile")}
           className="inline-flex min-h-10 items-center gap-2 rounded-full bg-[var(--tb-accent)] px-5 py-2.5 font-medium text-[var(--tb-on-accent)]"
         >
-          <Plus size={18} /> Pair a screen
+          <Plus size={18} /> {t("views.screens.pair")}
         </button>
       </div>
     );
   }
   const errors = displays.filter((d) => live[d.agent_id]?.error);
   return (
-    <section aria-label="Your screens" className="mx-auto mt-8 max-w-3xl px-4">
+    <section aria-label={t("views.screens.yours")} className="mx-auto mt-8 max-w-3xl px-4">
       <div className="flex flex-wrap justify-center gap-2">
         {displays.map((d) => {
           const name = names.get(d.agent_id) ?? d.label;
@@ -485,15 +489,15 @@ function DisplayRow({
             >
               <span
                 className={`h-2.5 w-2.5 flex-none rounded-full ${d.connected ? "bg-[var(--tb-ok)]" : "bg-[var(--tb-line)]"}`}
-                title={d.connected ? "Connected" : "Offline"}
+                title={d.connected ? t("views.screens.connected") : t("views.screens.offline")}
               />
               <span className="max-w-40 truncate text-sm">{name}</span>
               <button
                 type="button"
                 onClick={() => onShoot(d)}
                 disabled={!d.connected || busy}
-                aria-label={`Take a picture of ${name}`}
-                title={d.connected ? "Take a picture" : "Offline"}
+                aria-label={t("views.screens.shootOf", { name })}
+                title={d.connected ? t("views.screens.shoot") : t("views.screens.offline")}
                 className="flex h-10 w-10 flex-none items-center justify-center rounded-full bg-[var(--tb-accent)] text-[var(--tb-on-accent)] disabled:opacity-30"
               >
                 {busy ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
@@ -517,18 +521,19 @@ function DisplayRow({
  * controls - nothing here is data, and nothing here can be tapped.
  */
 function Examples({ zone }: { zone: string }) {
+  const t = useT();
   const clock = (minutesAgo: number) => formatTime(new Date(Date.now() - minutesAgo * 60_000).toISOString(), zone, CLOCK);
   const [lead] = EXAMPLE_SYMBOLS;
   const tag =
     "rounded-full border border-dashed border-[var(--tb-muted)]/50 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[var(--tb-muted)]";
   const step = "px-4 text-center font-mono text-[11px] uppercase tracking-[0.3em] text-[var(--tb-muted)]/80";
   return (
-    <section aria-label="How this page fills up" className="select-none">
-      <p className="mx-auto mb-6 mt-2 max-w-md px-6 text-center text-[17px] leading-relaxed">{SIRI_LINE}</p>
+    <section aria-label={t("views.screens.examples")} className="select-none">
+      <p className="mx-auto mb-6 mt-2 max-w-md px-6 text-center text-[17px] leading-relaxed">{t("views.screens.siri")}</p>
 
       {/* Laid out exactly as the real carousels are, so the example is the thing itself. */}
       <div aria-hidden="true" className="@container pointer-events-none">
-        <p className={step}>By symbol</p>
+        <p className={step}>{t("views.screens.bySymbol")}</p>
         <div className="flex gap-3 overflow-hidden px-[30cqw] py-2 md:px-[39cqw]">
           {EXAMPLE_SYMBOLS.map((x, i) => (
             <div
@@ -539,7 +544,7 @@ function Examples({ zone }: { zone: string }) {
             >
               <div className="flex items-start justify-between gap-2">
                 <span className="font-mono text-2xl font-semibold tracking-tight text-[var(--tb-muted)]">{x.symbol}</span>
-                <span className={tag}>Example</span>
+                <span className={tag}>{t("views.screens.example")}</span>
               </div>
               <span className="mt-3 text-xs text-[var(--tb-muted)]">
                 {captureCount(x.count)} · {clock(x.minutesAgo)}
@@ -548,7 +553,7 @@ function Examples({ zone }: { zone: string }) {
           ))}
         </div>
 
-        <p className={`${step} mt-4`}>Then by capture</p>
+        <p className={`${step} mt-4`}>{t("views.screens.byCapture")}</p>
         <div className="flex gap-3 overflow-hidden px-[9cqw] py-2 md:px-[19cqw]">
           {[0, 1].map((n) => (
             <figure
@@ -559,10 +564,10 @@ function Examples({ zone }: { zone: string }) {
             >
               <div className="relative aspect-[16/10] bg-black">
                 <img src={chartShot} alt="" className="h-full w-full object-contain opacity-20 grayscale" />
-                <span className={`absolute left-3 top-3 bg-black/60 ${tag}`}>Example capture</span>
+                <span className={`absolute left-3 top-3 bg-black/60 ${tag}`}>{t("views.screens.exampleCapture")}</span>
               </div>
               <figcaption className="px-5 py-3 text-sm text-[var(--tb-muted)] opacity-80">
-                {lead.symbol} · Your Mac · {clock(lead.minutesAgo + n * 9)}
+                {lead.symbol} · {t("views.screens.yourMac")} · {clock(lead.minutesAgo + n * 9)}
               </figcaption>
             </figure>
           ))}
