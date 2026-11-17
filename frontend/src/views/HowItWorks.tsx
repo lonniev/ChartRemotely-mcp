@@ -21,7 +21,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { Tx } from "@tollbooth-dpyc/web/react";
 import { go } from "../lib/route";
+import { useT, WORDS } from "../i18n";
 
 /**
  * The page's images, bundled by Vite so each URL carries a content hash. The
@@ -90,17 +92,18 @@ function Wire({ label, down = false }: { label: string; down?: boolean }) {
 
 /** The chart monitor: a bezel around a real trading-screen photo. */
 function Monitor() {
+  const t = useT();
   return (
     <figure className="flex w-40 flex-none flex-col items-center text-center sm:w-44">
       <div className="w-full rounded-xl bg-[#1b1f24] p-1.5 shadow-[0_0_40px_-10px_var(--tb-accent)] ring-1 ring-[#2a3038]">
         <div className="aspect-[16/10] overflow-hidden rounded-md">
-          <img src={asset("chart.jpg")} alt="A trading chart on a monitor" loading="lazy" className="h-full w-full object-cover" />
+          <img src={asset("chart.jpg")} alt={t("views.how.monitor.alt")} loading="lazy" className="h-full w-full object-cover" />
         </div>
       </div>
       <div className="mx-auto h-3 w-8 bg-[#2a3038]" aria-hidden="true" />
       <div className="mx-auto h-1.5 w-16 rounded-full bg-[#2a3038]" aria-hidden="true" />
       <figcaption className="mt-2 text-sm font-medium">thinkorswim</figcaption>
-      <div className="text-xs leading-snug text-[var(--tb-muted)]">the charting display</div>
+      <div className="text-xs leading-snug text-[var(--tb-muted)]">{t("views.how.monitor.line")}</div>
     </figure>
   );
 }
@@ -133,18 +136,26 @@ function Lan({ icon: Icon, name, children }: { icon: LucideIcon; name: string; c
   );
 }
 
-export const CREDITS = [
-  { what: "iPhone", title: "Apple iPhone 15 Pro", by: "IPHONE 15", license: "CC BY-SA 4.0",
+/**
+ * Each photograph's credit. A product's name stays as it is; ``what: null``
+ * and ``by: null`` are said in the reader's language ("Chart screen",
+ * "unknown author").
+ */
+export const CREDITS: {
+  id: string; what: string | null; title: string; by: string | null; license: string; page: string; cropped: boolean;
+}[] = [
+  { id: "iphone", what: "iPhone", title: "Apple iPhone 15 Pro", by: "IPHONE 15", license: "CC BY-SA 4.0",
     page: "https://commons.wikimedia.org/wiki/File:Apple_iPhone_15_Pro.jpg", cropped: true },
-  { what: "Apple Watch", title: "Apple Watch Series 7; January 2022 (01)", by: "MIKI Yoshihito", license: "CC BY 2.0",
+  { id: "watch", what: "Apple Watch", title: "Apple Watch Series 7; January 2022 (01)", by: "MIKI Yoshihito", license: "CC BY 2.0",
     page: "https://commons.wikimedia.org/wiki/File:Apple_Watch_Series_7;_January_2022_(01).jpg", cropped: true },
-  { what: "Mac mini", title: "Mac mini M4 2024-11-16 1", by: "Yelderberry", license: "CC BY-SA 4.0",
+  { id: "mac", what: "Mac mini", title: "Mac mini M4 2024-11-16 1", by: "Yelderberry", license: "CC BY-SA 4.0",
     page: "https://commons.wikimedia.org/wiki/File:Mac_mini_M4_2024-11-16_1.jpg", cropped: true },
-  { what: "Chart screen", title: "Stock market charts illustration", by: "unknown author", license: "CC0",
+  { id: "chart", what: null, title: "Stock market charts illustration", by: null, license: "CC0",
     page: "https://commons.wikimedia.org/wiki/File:Stock_market_charts_illustration.jpg", cropped: false },
 ];
 
 export default function HowItWorks() {
+  const t = useT();
   return (
     <div className="mx-auto max-w-5xl px-4 py-10">
       <style>{`
@@ -158,66 +169,65 @@ export default function HowItWorks() {
         @media (prefers-reduced-motion: reduce) { .wire { animation: none } }
       `}</style>
 
-      <h1 className="text-3xl font-semibold tracking-tight">How it works</h1>
+      <h1 className="text-3xl font-semibold tracking-tight">{t("views.how.title")}</h1>
       <p className="mt-3 max-w-2xl text-[var(--tb-muted)]">
-        Voice commands travel over a private Tailscale network that joins every location you work from. Browser and
-        agent requests meet in the cloud, where your Mac collects them over its own outbound connection.
+        {t("views.how.lede")}
       </p>
 
-      <section aria-label="Your tailnet" className="mt-10">
-        <Band title="Your tailnet" logo="tailscale" subtitle="One private network across every location">
+      <section aria-label={t("views.how.tailnet.title")} className="mt-10">
+        <Band title={t("views.how.tailnet.title")} logo="tailscale" subtitle={t("views.how.tailnet.subtitle")}>
           <div className="flex flex-col items-center">
-            <Lan icon={Home} name="Home network">
+            <Lan icon={Home} name={t("views.how.home")}>
               <div className="flex flex-col items-center gap-2 lg:flex-row">
                 <div className="flex gap-3">
-                  <Photo src="iphone.jpg" alt="An iPhone" name="iPhone" line="Siri Shortcut" width="w-20" />
-                  <Photo src="watch.jpg" alt="An Apple Watch" name="Apple Watch" line="Siri Shortcut" width="w-20" />
+                  <Photo src="iphone.jpg" alt={t("views.how.iphone.alt")} name="iPhone" line={t("views.how.siri")} width="w-20" />
+                  <Photo src="watch.jpg" alt={t("views.how.watch.alt")} name="Apple Watch" line={t("views.how.siri")} width="w-20" />
                 </div>
-                <Wire label="HTTPS within the tailnet" />
-                <Photo src="mac-mini.jpg" alt="A Mac mini" name="Mac mini" line="ChartRemotely agent, behind Tailscale Serve" width="w-36" />
-                <Wire label="Accessibility keystrokes" />
+                <Wire label={t("views.how.wire.tailnet")} />
+                <Photo src="mac-mini.jpg" alt={t("views.how.mac.alt")} name="Mac mini" line={t("views.how.mac.line")} width="w-36" />
+                <Wire label={t("views.how.wire.keystrokes")} />
                 <Monitor />
               </div>
             </Lan>
-            <Wire label="Tailscale joins both networks into one private tailnet" down />
-            <Lan icon={Hotel} name="Hotel network">
+            <Wire label={t("views.how.wire.joins")} down />
+            <Lan icon={Hotel} name={t("views.how.hotel")}>
               <div className="flex justify-center">
-                <Photo src="ipad.jpg" alt="An iPad" name="iPad" line="Siri Shortcut, on the hotel's Wi-Fi" width="w-36" />
+                <Photo src="ipad.jpg" alt={t("views.how.ipad.alt")} name="iPad" line={t("views.how.ipad.line")} width="w-36" />
               </div>
             </Lan>
           </div>
         </Band>
       </section>
 
-      <section aria-label="Live market data" className="mt-8">
-        <Band title="Live market data">
+      <section aria-label={t("views.how.market.title")} className="mt-8">
+        <Band title={t("views.how.market.title")}>
           <div className="flex flex-col items-center gap-2 lg:flex-row lg:justify-center">
-            <Service icon={TrendingUp} name="thinkorswim" line="the trading and charting platform" />
-            <Wire label="live quotes and chart data" />
-            <Service icon={Landmark} name="Charles Schwab" line="the brokerage and its data services" />
-            <Wire label="market data feeds" />
-            <Service icon={CandlestickChart} name="The markets" line="exchanges and consolidated quotes" />
+            <Service icon={TrendingUp} name="thinkorswim" line={t("views.how.tos.line")} />
+            <Wire label={t("views.how.wire.quotes")} />
+            <Service icon={Landmark} name="Charles Schwab" line={t("views.how.schwab.line")} />
+            <Wire label={t("views.how.wire.feeds")} />
+            <Service icon={CandlestickChart} name={t("views.how.markets.name")} line={t("views.how.markets.line")} />
           </div>
         </Band>
       </section>
 
       <div className="flex justify-center">
-        <Wire label="the Mac connects outbound: commands down, pictures up" down />
+        <Wire label={t("views.how.wire.outbound")} down />
       </div>
 
-      <section aria-label="The cloud">
-        <Band title="The cloud">
+      <section aria-label={t("views.how.cloud.title")}>
+        <Band title={t("views.how.cloud.title")}>
           <div className="flex flex-col items-center gap-2 lg:flex-row lg:justify-center">
             <div className="flex gap-3">
-              <Service icon={Globe} name="Browser client" line="sign in with a Nostr key; view and change your displays" />
-              <Service icon={Bot} name="MCP clients" line="any agent framework, over the Model Context Protocol" />
+              <Service icon={Globe} name={t("views.how.browser.name")} line={t("views.how.browser.line")} />
+              <Service icon={Bot} name={t("views.how.mcp.name")} line={t("views.how.mcp.line")} />
             </div>
-            <Wire label="MCP over HTTPS" />
-            <Service logo="cloudflare" name="Cloudflare Pages" line="hosts this site and proxies MCP traffic" />
-            <Wire label="to the operator" />
-            <Service logo="prefect" name="Prefect Horizon" line="hosts the ChartRemotely MCP operator" />
-            <Wire label="state" />
-            <Service logo="neon" name="Neon" line="Postgres: pairings, command queue, encrypted pictures for four hours" />
+            <Wire label={t("views.how.wire.mcp")} />
+            <Service logo="cloudflare" name="Cloudflare Pages" line={t("views.how.pages.line")} />
+            <Wire label={t("views.how.wire.operator")} />
+            <Service logo="prefect" name="Prefect Horizon" line={t("views.how.horizon.line")} />
+            <Wire label={t("views.how.wire.state")} />
+            <Service logo="neon" name="Neon" line={t("views.how.neon.line")} />
           </div>
         </Band>
       </section>
@@ -225,47 +235,43 @@ export default function HowItWorks() {
       <section aria-label="Tollbooth DPYC" className="mt-8">
         <Band title="Tollbooth DPYC™" subtitle="DPYC™ — Don't Pester Your Customer™">
           <div className="flex flex-wrap justify-center gap-4">
-            <Service icon={KeyRound} name="Nostr" line="identity by npub, proven by signature" />
-            <Service logo="bitcoin" name="Bitcoin" line="a prepaid balance, held in sats" />
-            <Service icon={Zap} name="Lightning" line="instant top-ups, certified by a DPYC™ Authority" />
-            <Service icon={SlidersHorizontal} name="Pricing Studio" line="operators set every tool's price live" />
+            <Service icon={KeyRound} name="Nostr" line={t("views.how.nostr.line")} />
+            <Service logo="bitcoin" name="Bitcoin" line={t("views.how.bitcoin.line")} />
+            <Service icon={Zap} name="Lightning" line={t("views.how.lightning.line")} />
+            <Service icon={SlidersHorizontal} name="Pricing Studio" line={t("views.how.studio.line")} />
           </div>
         </Band>
       </section>
 
       <p className="mx-auto mt-10 flex max-w-2xl items-start gap-3 rounded-2xl border border-[var(--tb-line)] p-5 text-sm text-[var(--tb-muted)]">
         <Lock className="flex-none text-[var(--tb-accent)]" size={20} aria-hidden="true" />
-        Your Mac accepts no inbound connections from the internet: it connects outbound to the operator, and voice
-        commands stay inside your tailnet. Each picture is cropped to the chart pane before it leaves the Mac.
+        {t("views.how.safe")}
       </p>
 
       <div className="mt-8 text-center">
         <button type="button" onClick={() => go("welcome")} className="text-sm text-[var(--tb-accent)]">
-          ← Back to the start
+          {t("ui.app.back")}
         </button>
       </div>
 
       <footer className="mt-12 space-y-3 border-t border-[var(--tb-line)] pt-6 text-[11px] leading-relaxed text-[var(--tb-muted)]">
         <div>
-          <div className="mb-1">Photographs from Wikimedia Commons:</div>
+          <div className="mb-1">{t("views.how.credits.heading")}</div>
           <ul className="space-y-0.5">
             {CREDITS.map((c) => (
-              <li key={c.what}>
-                {c.what}: <a href={c.page} className="underline">{c.title}</a> by {c.by}, {c.license}
-                {c.cropped ? ", cropped" : ""}.
+              <li key={c.id}>
+                <Tx ns={WORDS} k={c.cropped ? "views.how.credits.lineCropped" : "views.how.credits.line"}
+                  vars={{ what: c.what ?? t("views.how.credits.chart"), by: c.by ?? t("views.how.credits.unknown"), license: c.license }}
+                  components={{ photo: <a href={c.page} className="underline">{c.title}</a> }} />
               </li>
             ))}
           </ul>
-          <div className="mt-1">iPad photograph supplied by the site owner.</div>
+          <div className="mt-1">{t("views.how.credits.ipad")}</div>
           <div className="mt-1">
-            Logos from <a href="https://simpleicons.org" className="underline">Simple Icons</a> (CC0).
+            <Tx ns={WORDS} k="views.how.credits.logos" components={{ icons: <a href="https://simpleicons.org" className="underline" /> }} />
           </div>
         </div>
-        <p>
-          Tollbooth DPYC™, DPYC™ and Don't Pester Your Customer™ are trademarks of Lonnie VanZandt. thinkorswim,
-          Schwab, Apple, iPhone, iPad, Apple Watch, Mac mini, Siri, Tailscale, Cloudflare, Prefect and Neon are
-          trademarks of their respective owners. ChartRemotely is not affiliated with or endorsed by any of them.
-        </p>
+        <p>{t("views.how.marks")}</p>
       </footer>
     </div>
   );

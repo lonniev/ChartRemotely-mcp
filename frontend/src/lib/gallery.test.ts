@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { captureCount, flattenCaptures, groupBySymbol, indexOr0 } from "./gallery.ts";
+import { registerChartRemotely } from "../i18n/index.ts";
+
+await registerChartRemotely();
 
 const cap = (id: string, minute: number, scale?: string) => ({
   id,

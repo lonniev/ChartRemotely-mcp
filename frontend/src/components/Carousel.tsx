@@ -20,6 +20,7 @@
 import { Children, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { wrapIndex } from "../lib/screens";
+import { useT } from "../i18n";
 
 /** How long scrolling must pause before the centred slide counts as chosen. */
 const SETTLE_MS = 220;
@@ -36,7 +37,7 @@ const SIZES = {
 interface Props {
   children: ReactNode;
   label: string;
-  /** What one slide is, for the buttons' names: "screen", "symbol", "capture". */
+  /** What one slide is, for the buttons' names, in the reader's language ("screen" when not given). */
   itemName?: string;
   size?: keyof typeof SIZES;
   index?: number;
@@ -50,13 +51,15 @@ interface Props {
 export default function Carousel({
   children,
   label,
-  itemName = "screen",
+  itemName,
   size = "wide",
   index,
   onSettle,
   dots = true,
   autoFocus = false,
 }: Props) {
+  const t = useT();
+  const item = itemName ?? t("ui.carousel.screen");
   const slides = Children.toArray(children);
   const track = useRef<HTMLDivElement | null>(null);
   const [active, setActive] = useState(0);
@@ -140,7 +143,7 @@ export default function Carousel({
             data-index={i}
             role="group"
             aria-roledescription="slide"
-            aria-label={`${i + 1} of ${slides.length}`}
+            aria-label={t("ui.carousel.slide", { n: i + 1, total: slides.length })}
             onClickCapture={(e) => {
               if (i === active) return;
               e.preventDefault();
@@ -161,7 +164,7 @@ export default function Carousel({
           <button
             type="button"
             onClick={() => goTo(active - 1)}
-            aria-label={`Previous ${itemName}`}
+            aria-label={t("ui.carousel.previous", { item })}
             className="absolute left-2 top-1/2 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--tb-surface-2)]/90 md:flex"
           >
             <ChevronLeft size={20} />
@@ -169,7 +172,7 @@ export default function Carousel({
           <button
             type="button"
             onClick={() => goTo(active + 1)}
-            aria-label={`Next ${itemName}`}
+            aria-label={t("ui.carousel.next", { item })}
             className="absolute right-2 top-1/2 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--tb-surface-2)]/90 md:flex"
           >
             <ChevronRight size={20} />
@@ -182,7 +185,7 @@ export default function Carousel({
                 key={i}
                 type="button"
                 onClick={() => goTo(i)}
-                aria-label={`Go to ${itemName} ${i + 1}`}
+                aria-label={t("ui.carousel.goTo", { item, n: i + 1 })}
                 aria-current={i === active}
                 className="flex h-10 min-w-7 items-center justify-center"
               >

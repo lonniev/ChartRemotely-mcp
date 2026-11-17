@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { displayNames, normalizeCode, orderDisplays, takenAgo, wrapIndex } from "./screens.ts";
+import { registerChartRemotely } from "../i18n/index.ts";
+
+await registerChartRemotely();
 
 const d = (label: string, agent_id: string, connected: boolean) => ({ label, agent_id, connected });
 
