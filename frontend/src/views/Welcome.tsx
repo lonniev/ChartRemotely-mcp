@@ -42,14 +42,14 @@ const PIECES: { icon: LucideIcon; id: "voice" | "agent" | "screens" | "pay" }[] 
 export default function Welcome({ signedIn }: { signedIn: boolean }) {
   const t = useT();
   return (
-    <div className="mx-auto max-w-3xl px-4">
+    <div className="mx-auto max-w-[90rem] px-4">
       <header className="py-16 md:py-24">
         <h1 className="text-4xl font-semibold leading-tight tracking-tight md:text-6xl">
           {t("views.welcome.title.say")}
           <br />
           <span className="text-[var(--tb-accent)]">{t("views.welcome.title.see")}</span>
         </h1>
-        <p className="mt-5 max-w-xl text-lg text-[var(--tb-muted)]">
+        <p className="mt-5 text-lg text-[var(--tb-muted)]">
           {t("views.welcome.lede")}
         </p>
         {/* The way to learn more sits left; the way in sits right. */}

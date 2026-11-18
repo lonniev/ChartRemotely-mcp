@@ -180,7 +180,7 @@ export default function Screens() {
   const paired = displays ?? [];
 
   return (
-    <div className="mx-auto max-w-5xl pb-10 pt-4">
+    <div className="mx-auto max-w-[90rem] pb-10 pt-4">
       {group ? (
         <>
           <Carousel
@@ -477,7 +477,7 @@ function DisplayRow({
   }
   const errors = displays.filter((d) => live[d.agent_id]?.error);
   return (
-    <section aria-label={t("views.screens.yours")} className="mx-auto mt-8 max-w-3xl px-4">
+    <section aria-label={t("views.screens.yours")} className="mx-auto mt-8 max-w-[90rem] px-4">
       <div className="flex flex-wrap justify-center gap-2">
         {displays.map((d) => {
           const name = names.get(d.agent_id) ?? d.label;
@@ -529,7 +529,7 @@ function Examples({ zone }: { zone: string }) {
   const step = "px-4 text-center font-mono text-[11px] uppercase tracking-[0.3em] text-[var(--tb-muted)]/80";
   return (
     <section aria-label={t("views.screens.examples")} className="select-none">
-      <p className="mx-auto mb-6 mt-2 max-w-md px-6 text-center text-[17px] leading-relaxed">{t("views.screens.siri")}</p>
+      <p className="mb-6 mt-2 px-6 text-center text-[17px] leading-relaxed">{t("views.screens.siri")}</p>
 
       {/* Laid out exactly as the real carousels are, so the example is the thing itself. */}
       <div aria-hidden="true" className="@container pointer-events-none">

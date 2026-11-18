@@ -103,7 +103,7 @@ export default function Profile({ session }: { session: Session }) {
         </>
       }
       classNames={{
-        root: "mx-auto max-w-lg space-y-4 px-4 py-6",
+        root: "mx-auto max-w-[90rem] space-y-4 px-4 py-6",
         section: card,
         sectionNote: "mt-2 text-xs text-[var(--tb-muted)]",
         actions: "flex justify-end px-1 pb-4",
