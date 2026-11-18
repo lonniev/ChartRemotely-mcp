@@ -157,7 +157,7 @@ export const CREDITS: {
 export default function HowItWorks() {
   const t = useT();
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10">
+    <div className="mx-auto max-w-[90rem] px-4 py-10">
       <style>{`
         .wire {
           background: linear-gradient(90deg, transparent, var(--tb-accent), transparent);
@@ -170,7 +170,7 @@ export default function HowItWorks() {
       `}</style>
 
       <h1 className="text-3xl font-semibold tracking-tight">{t("views.how.title")}</h1>
-      <p className="mt-3 max-w-2xl text-[var(--tb-muted)]">
+      <p className="mt-3 text-[var(--tb-muted)]">
         {t("views.how.lede")}
       </p>
 
@@ -243,7 +243,7 @@ export default function HowItWorks() {
         </Band>
       </section>
 
-      <p className="mx-auto mt-10 flex max-w-2xl items-start gap-3 rounded-2xl border border-[var(--tb-line)] p-5 text-sm text-[var(--tb-muted)]">
+      <p className="mt-10 flex items-start gap-3 rounded-2xl border border-[var(--tb-line)] p-5 text-sm text-[var(--tb-muted)]">
         <Lock className="flex-none text-[var(--tb-accent)]" size={20} aria-hidden="true" />
         {t("views.how.safe")}
       </p>

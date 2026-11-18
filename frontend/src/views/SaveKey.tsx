@@ -47,7 +47,7 @@ export default function SaveKey({ session }: { session: Session }) {
   }
 
   return (
-    <div className="mx-auto max-w-md px-4 py-10">
+    <div className="mx-auto max-w-[90rem] px-4 py-10">
       <div className="mb-2 flex items-center gap-2">
         <KeyRound size={20} className="text-[var(--tb-accent)]" aria-hidden="true" />
         <h1 className="text-xl font-semibold">{t("views.saveKey.title")}</h1>

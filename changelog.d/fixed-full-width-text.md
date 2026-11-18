@@ -1,0 +1,1 @@
+- Pages and their text now use the width the screen gives them: How it works, Start, Welcome, Prices, Save key, Screens and Profile stopped partway across a wide screen.
