@@ -1,1 +1,0 @@
-- The web app speaks six languages: English, French, Spanish, Japanese, Chinese and Hindi. It opens in the reader's chosen language, else their country's, else English, and a chooser sits on the Welcome page and on Profile.
