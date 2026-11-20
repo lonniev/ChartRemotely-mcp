@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 Changes not yet released live in `changelog.d/`, one file per change — see the README there for why, and `scripts/changelog.py` for what folds them in at release time.
 
+## [0.4.1] — 2026-11-19
+
+### Added
+
+- The site serves `/llms.txt`, a guide for AI agents built by the shared `@tollbooth-dpyc/web/agent-guide` plugin, and links it from every page.
+
+- The web app speaks six languages: English, French, Spanish, Japanese, Chinese and Hindi. It opens in the reader's chosen language, else their country's, else English, and a chooser sits on the Welcome page and on Profile.
+
+### Changed
+
+- Runs on @tollbooth-dpyc/web 2.6.0, so Pay opens your own Lightning wallet and an open invoice says the page is watching for it.
+
+- Each page loads the first time it opens, so the first visit downloads about a sixth less.
+
+- The MCP Registry listing carries a title (ChartRemotely) and a link to https://chartremotely.tollbooth-dpyc.com.
+
+- The wallet is now the shared one from tollbooth-web 3.0.0, with a QR code on an open invoice and amounts of 100 to 25,000 plus Custom.
+
+### Fixed
+
+- Pages and their text now use the width the screen gives them: How it works, Start, Welcome, Prices, Save key, Screens and Profile stopped partway across a wide screen.
+
+- "Need a wallet?" on the Prices page now loads its list of wallets.
+
 ## [0.4.0] — 2026-10-21
 
 ### Added

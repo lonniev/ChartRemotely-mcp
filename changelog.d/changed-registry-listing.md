@@ -1,1 +1,0 @@
-- The MCP Registry listing carries a title (ChartRemotely) and a link to https://chartremotely.tollbooth-dpyc.com.
