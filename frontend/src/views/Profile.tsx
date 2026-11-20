@@ -1,7 +1,8 @@
 /**
  * Who you are, what you can spend and have spent, which screens are yours, the
  * clock your pictures are stamped in, and what is running — the shared
- * AccountPage, with the wallet, screens and Siri Shortcut in its slots.
+ * AccountPage's groups, with the wallet in Money and the screens and Siri
+ * Shortcut in This site.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -61,9 +62,19 @@ export default function Profile({ session }: { session: Session }) {
     <AccountPage
       npub={session.npub}
       heading={null}
-      between={{
-        profile: <BalanceAndTopUp />,
-        usage: (
+      panels={{
+        you: (
+          <>
+            <section className={card}>
+              <LanguageChooser />
+            </section>
+            <p className="px-1 text-[11px] text-[var(--tb-muted)]">
+              {session.canSign ? t("views.profile.signing") : t("views.profile.cached")}
+            </p>
+          </>
+        ),
+        money: <BalanceAndTopUp />,
+        site: (
           <>
             <Displays />
             <Voice />
@@ -86,16 +97,6 @@ export default function Profile({ session }: { session: Session }) {
         frontend: { version: __APP_VERSION__, source: "https://github.com/lonniev/ChartRemotely-mcp" },
         classNames: buildStyles,
       }}
-      after={
-        <>
-          <section className={card}>
-            <LanguageChooser />
-          </section>
-          <p className="px-1 text-[11px] text-[var(--tb-muted)]">
-            {session.canSign ? t("views.profile.signing") : t("views.profile.cached")}
-          </p>
-        </>
-      }
       onSignOut={session.signOut}
       signOutLabel={
         <>
@@ -103,7 +104,9 @@ export default function Profile({ session }: { session: Session }) {
         </>
       }
       classNames={{
-        root: "mx-auto max-w-[90rem] space-y-4 px-4 py-6",
+        root: "mx-auto max-w-[90rem] space-y-6 px-4 py-6",
+        groupSummary: "mb-3 cursor-pointer text-sm uppercase tracking-wider text-[var(--tb-muted)]",
+        groupBody: "grid grid-cols-[repeat(auto-fit,minmax(min(100%,26rem),1fr))] items-start gap-4",
         section: card,
         sectionNote: "mt-2 text-xs text-[var(--tb-muted)]",
         actions: "flex justify-end px-1 pb-4",
