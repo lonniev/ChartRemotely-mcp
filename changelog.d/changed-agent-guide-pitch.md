@@ -1,1 +1,0 @@
-- llms.txt opens with what to tell a trader about ChartRemotely, and describes what it does in place of a list of tools.
