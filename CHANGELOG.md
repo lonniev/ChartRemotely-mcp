@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 Changes not yet released live in `changelog.d/`, one file per change — see the README there for why, and `scripts/changelog.py` for what folds them in at release time.
 
+## [0.4.5] — 2026-11-22
+
+### Fixed
+
+- `service_status` reports the version actually released; it read a stale constant (0.4.2) before.
+
 ## [0.4.4] — 2026-11-22
 
 ### Changed
