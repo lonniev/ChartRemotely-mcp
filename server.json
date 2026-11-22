@@ -4,7 +4,7 @@
   "title": "ChartRemotely",
   "description": "ChartRemotely — put a security on a desktop chart anywhere in the world, by voice or by tool call",
   "websiteUrl": "https://chartremotely.tollbooth-dpyc.com",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "repository": {
     "url": "https://github.com/lonniev/ChartRemotely-mcp",
     "source": "github"
