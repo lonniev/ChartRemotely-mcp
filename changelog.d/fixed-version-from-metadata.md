@@ -1,1 +1,0 @@
-- `service_status` reports the version actually released; it read a stale constant (0.4.2) before.
