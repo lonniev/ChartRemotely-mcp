@@ -79,6 +79,13 @@ require changes in both repositories, in public.
 - [ChartRemotely-agent](https://github.com/lonniev/ChartRemotely-agent) — runs on the patron's Mac
 - [chartremotely.tollbooth-dpyc.com](https://chartremotely.tollbooth-dpyc.com) — the web app, built from `frontend/` here
 
+<!-- dpyc-family -->
+## Part of Tollbooth DPYC™
+
+This service is one of the Tollbooth DPYC™ family of MCP servers.
+Browse them all in the [MCP catalog](https://cafe.tollbooth-dpyc.com/collections/mcps).
+The [DPYC Oracle](https://dpyc-oracle.fastmcp.app/mcp) lists the live network with its free `list_services` tool.
+
 ## License
 
 Apache-2.0
